@@ -96,7 +96,7 @@ Public Function ProcessMissingData(ByVal vMissing As Variant) As String
         Dim copySuccess As Boolean
         Dim sMissingList As String
         
-        sMissingList = Join(vMissing, ", ")
+        sMissingList = Join(vMissing, vbCrLf)
         
         On Error Resume Next
         copySuccess = ClipboardAPI.SetClipboardText(sMissingList)
