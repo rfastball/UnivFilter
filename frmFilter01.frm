@@ -5,7 +5,7 @@ Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmFilter01
    ClientLeft      =   88
    ClientTop       =   424
    ClientWidth     =   4056
-   OleObjectBlob   =   "vba_temp_frmFilter01.frx":0000
+   OleObjectBlob   =   "frmFilter01.frx":0000
    ShowModal       =   0   'False
    StartUpPosition =   1  '소유자 가운데
 End
