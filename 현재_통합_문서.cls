@@ -14,7 +14,6 @@ Option Explicit
 
 ' 엑셀 어플리케이션 전체 이벤트를 받기 위한 변수
 Private WithEvents AppEvents As Application
-Attribute AppEvents.VB_VarHelpID = -1
 
 Private Sub Workbook_Open()
     ' 1. 앱 레벨 이벤트 연결 (엑셀 전체 감시 시작)
