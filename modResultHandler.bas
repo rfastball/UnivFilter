@@ -174,7 +174,8 @@ Public Sub GenerateResultReport( _
     End If
     
     If iMissingCnt > 0 Then
-        sReport = sReport & "?? [데이터 없음] " & iMissingCnt & "건" & vbCrLf & _
+        ' [Fix v2.7] 깨진 이모지 문자를 ASCII 기호로 대체
+        sReport = sReport & "[!] [데이터 없음] " & iMissingCnt & "건" & vbCrLf & _
                   "    (" & Join(vMissing, ", ") & ")" & vbCrLf & vbCrLf
     End If
     
@@ -184,7 +185,8 @@ Public Sub GenerateResultReport( _
     iVisFailCnt = dictVisFail.Count
     
     If iVisFailCnt > 0 Then
-        sReport = sReport & "?? [서식 자동 보정] " & iVisFailCnt & "건" & vbCrLf
+        ' [Fix v2.7] 깨진 이모지 문자를 ASCII 기호로 대체
+        sReport = sReport & "[i] [서식 자동 보정] " & iVisFailCnt & "건" & vbCrLf
         
         ' 리포트 가독성을 위해 상위 3개 항목만 샘플로 노출
         Dim k As Variant, i As Long

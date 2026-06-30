@@ -416,7 +416,10 @@ Sub DeleteAllFilterButtons()
     If MsgBox("모든 필터 버튼을 삭제하시겠습니까?", vbQuestion + vbYesNo) = vbNo Then Exit Sub
     Dim shp As Shape, delCount As Long
     
-    Application.ScreenUpdating = False
+    ' [Fix v2.7] 최적화 모드 진입/복구 패턴 통일
+    On Error GoTo ErrHandler
+    Call OptimizedMode(True)
+
     For Each shp In ActiveSheet.Shapes
         If shp.Name Like "SmartFilterBtn_*" Then shp.Delete: delCount = delCount + 1
     Next shp

@@ -518,7 +518,8 @@ Public Function GetColumnIdentity(targetCol As Range) As String
     ' 서식 내 특수문자([]) 제거
     Dim cleanFmt As String: cleanFmt = fmt
     Do While InStr(cleanFmt, "[") > 0 And InStr(cleanFmt, "]") > InStr(cleanFmt, "[")
-        cleanFmt = Left(cleanFmt, InStr(cleanFmt, "[") - 1) & mID(cleanFmt, InStr(cleanFmt, "]") + 1)
+        ' [Fix v2.7] mID -> Mid 오타 수정
+        cleanFmt = Left(cleanFmt, InStr(cleanFmt, "[") - 1) & Mid(cleanFmt, InStr(cleanFmt, "]") + 1)
     Loop
 
     ' 불리언/날짜 타입 우선 배제
@@ -581,7 +582,8 @@ Private Function IsDateFmt(ByVal sFmt As String) As Boolean
     ' 따옴표로 감싸진 리터럴 텍스트 제거 (서식 코드 오인식 방지)
     sClean = ""
     For i = 1 To Len(sFmt)
-        c = mID(sFmt, i, 1)
+        ' [Fix v2.7] mID -> Mid 오타 수정
+        c = Mid(sFmt, i, 1)
         If c = """" Then bInQuote = Not bInQuote Else If Not bInQuote Then sClean = sClean & c
     Next i
     
