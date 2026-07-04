@@ -1,0 +1,17 @@
+# Harness runtime logs and temporary files.
+**/_dbg/
+.gate/
+*.log
+*.tmp
+~$*
+
+# Binary Excel workbooks are human-managed runtime artifacts (churn every
+# harness run) — the src\ beside them is the tracked source of truth.
+*.xlsb
+*.xlsm
+*.xlsx
+
+# test templates
+test_*/
+archive/
+releases/

@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "modMatchingEngine"
+Attribute VB_Name = "modMatchingEngine"
 Option Explicit
 
 ' ==============================================================================
@@ -132,14 +132,14 @@ NextItem:
         Log "ExecuteValueStrategy: 입국 심사 완료 (Pass: " & iClean & ", Fail: " & iFail & ")", lvlDebug
         
         ' ----------------------------------------------------------------------
-        ' 2. clsSet 집합 연산 (순수 숫자만 처리)
+        ' 2. Core_clsSet 집합 연산 (순수 숫자만 처리)
         ' ----------------------------------------------------------------------
-        Dim setUniverse As clsSet, setInputClean As clsSet
+        Dim setUniverse As Core_clsSet, setInputClean As Core_clsSet
         Dim vResult As Variant
-        Dim setCommon As clsSet, setDiffInput As clsSet
+        Dim setCommon As Core_clsSet, setDiffInput As Core_clsSet
         
         Set setUniverse = colAsset.data
-        Set setInputClean = New clsSet
+        Set setInputClean = New Core_clsSet
         
         ' 정제된 숫자만 로드
         If iClean > 0 Then setInputClean.LoadFromArray arrCleanInput
@@ -191,7 +191,7 @@ NextItem:
         
         ' 5. 필터 기준(Criteria) 생성
         Dim arrFinal As Variant
-        Dim targetSet As clsSet
+        Dim targetSet As Core_clsSet
         If bExclude Then
              ' 제외 모드: 전체 - 교집합
              Set targetSet = setUniverse.Difference(setCommon)
@@ -221,9 +221,9 @@ NextItem:
     ' [분기 2] 부분 일치 (Partial Match) - 기존 로직 유지
     Else
         ' 부분 일치는 텍스트 변환 기반이므로, 입력값 전체(dictInput.Keys)를 그대로 사용해도 무방
-        Dim setMatched As clsSet
+        Dim setMatched As Core_clsSet
         Dim arrCriteriaPart As Variant
-        Dim targetSetPart As clsSet
+        Dim targetSetPart As Core_clsSet
         
         Set setMatched = GetPartialMatch_Smart(colAsset.data, dictInput.Keys, colAsset.fmt)
         
@@ -262,7 +262,7 @@ Private Function ExecuteStringStrategy( _
     ByVal bExclude As Boolean) As Object
     
     Dim dictRes As Object
-    Dim setUniverse As clsSet, setKeywords As clsSet
+    Dim setUniverse As Core_clsSet, setKeywords As Core_clsSet
     Dim arrCriteria As Variant, vMissing As Variant
     
     Set dictRes = CreateObject("Scripting.Dictionary")
@@ -276,7 +276,7 @@ Private Function ExecuteStringStrategy( _
     
     If bExact Then
         ' 텍스트 정확 일치: 집합 연산(Compare)을 통해 처리
-        Set setKeywords = New clsSet
+        Set setKeywords = New Core_clsSet
         
         ' [Patch 2] Boolean 열인데 입력값이 텍스트면, Boolean으로 변환해서 엔진에 주입
         If isBoolType Then
@@ -308,7 +308,7 @@ Private Function ExecuteStringStrategy( _
         
     Else
         ' 텍스트 부분 일치: 데이터 성격에 따라 경로 결정
-        Dim setMatched As clsSet
+        Dim setMatched As Core_clsSet
         
         ' [수정] 날짜(DATE) 타입이거나 특별한 표시 형식이 지정된 경우 Smart Path로 우회
         ' Smart Path는 Raw Value와 Formatted Text를 모두 검사합니다.
@@ -368,11 +368,11 @@ End Function
 ' [Helper 1] 스마트 부분 검색 (본캐/부캐 이중 검사)
 ' ------------------------------------------------------------------------------
 Private Function GetPartialMatch_Smart( _
-    ByVal setUniverse As clsSet, _
+    ByVal setUniverse As Core_clsSet, _
     ByVal arrKeywords As Variant, _
-    ByVal sFmt As String) As clsSet
+    ByVal sFmt As String) As Core_clsSet
     
-    Dim newSet As New clsSet
+    Dim newSet As New Core_clsSet
     Dim vRawData As Variant
     Dim sDataRaw As String, sDataFmt As String, sKw As String
     Dim i As Long, k As Long
@@ -412,10 +412,10 @@ End Function
 ' [Helper 2] 고속 텍스트 부분 검색
 ' ------------------------------------------------------------------------------
 Private Function GetPartialMatch_Fast( _
-    ByVal setUniverse As clsSet, _
-    ByVal arrKeywords As Variant) As clsSet
+    ByVal setUniverse As Core_clsSet, _
+    ByVal arrKeywords As Variant) As Core_clsSet
     
-    Dim newSet As New clsSet
+    Dim newSet As New Core_clsSet
     Dim vRawData As Variant
     Dim sData As String, sKw As String
     Dim i As Long, k As Long
@@ -442,7 +442,7 @@ End Function
 
 ' [Helper 3] 결과 데이터 포맷팅 (Set -> String Array)
 ' ------------------------------------------------------------------------------
-Private Function FormatSetToCriteria(targetSet As clsSet, sFmt As String) As Variant
+Private Function FormatSetToCriteria(targetSet As Core_clsSet, sFmt As String) As Variant
     Dim vArr As Variant, vRes() As String
     Dim i As Long
     

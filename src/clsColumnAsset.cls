@@ -1,4 +1,4 @@
-﻿VERSION 1.0 CLASS
+VERSION 1.0 CLASS
 BEGIN
   MultiUse = -1  'True
 END
@@ -14,7 +14,7 @@ Option Explicit
 ' 설명: 열(Column) 하나의 자산 단위 (데이터 + 서식)
 ' ========================================================
 
-Private mSetData As clsSet      ' 최적화된 집합 엔진
+Private mSetData As Core_clsSet      ' 최적화된 집합 엔진
 Private mFormat As String       ' 엑셀 표시 형식 (예: "#,##0")
 Private mID As String           ' 캐시 키 (디버깅용)
 Private mDetectedType As String ' [New] 열의 판별된 타입 (NUMBER, STRING, HYBRID 등)
@@ -28,7 +28,7 @@ Private mDetectedType As String ' [New] 열의 판별된 타입 (NUMBER, STRING,
 ' [Method] 데이터 주입 (Init 수정)
 ' 설명: 기존 인자에 sType을 추가하여 초기화 시점에 타입 정보를 받음
 ' ========================================================
-Public Sub Init(ByVal builtSet As clsSet, _
+Public Sub Init(ByVal builtSet As Core_clsSet, _
                 ByVal sFormat As String, _
                 ByVal sID As String, _
                 ByVal sType As String) ' <--- [New] 인자 추가
@@ -41,7 +41,7 @@ End Sub
 ' ========================================================
 ' [Property] 읽기 전용 속성
 ' ========================================================
-Public Property Get data() As clsSet
+Public Property Get data() As Core_clsSet
     Set data = mSetData
 End Property
 Public Property Get DetectedType() As String
