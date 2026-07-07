@@ -6,16 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `UnivFilter` — Excel VBA add-in that adds a custom Universal Filter (in-cell button + context menu + global shortcuts) to any ListObject/AutoFilter range. The shipping artifact is `../UnivFilter(v2.6).xlsb`; the files under `src/` are VBA exports of that binary's modules.
 
-## Build / Import-Export Workflow
+## Build / Test Workflow
 
-This codebase has **no compiler and no test runner** — the source of truth is the `.xlsb`, and `src/*.bas|.cls|.frm` are round-tripped through Excel itself via `CodeManager.bas`:
+The `_VbaHarness` dev loop is retired (no longer used on any project). Round-trip goes through `CodeManager.bas`: `ExportAllVBAElements` (xlsb → timestamped export folder) and `ImportVBA_From_ImportFolder` (files in `ThisWorkbook.Path & "\IMPORT\"` → xlsb; `.frm` requires its `.frx` next to it). Requires "Trust access to the VBA project object model" in Excel Trust Center.
 
-- **Export (xlsb → src/):** open the xlsb, run `CodeManager.ExportAllVBAElements`. Writes UTF-8 `.bas/.cls/.frm` into a new `VBA_Export_<timestamp>/` folder. `ExportAllToOneTextFile` produces a single `All_VBA_Code.txt`.
-- **Import (src/ → xlsb):** place files in `ThisWorkbook.Path & "\IMPORT\"`, run `CodeManager.ImportVBA_From_ImportFolder`. Each `.bas/.cls/.frm` overwrites the matching module (or creates it). `.frm` requires its `.frx` next to it or the UserForm UI breaks.
+Tests assert via `LogShim.AssertEq` (no raise on failure). `Test_UnivFilterHarness.Test_UnivFilter_SpecValidation` wraps `modTester.Run_SpecValidation`, which builds spec/report sheets inside the workbook and exercises end-to-end filter scenarios. `LogShim.bas` is a plain project-owned test helper now (not harness-managed) — edit as needed.
 
-Requires "Trust access to the VBA project object model" in Excel Trust Center.
+## Core_* modules are a deployed package — edit upstream
 
-There is no automated test suite. `modTester.Run_SpecValidation` is a self-test that builds spec/report sheets inside the workbook and exercises filter scenarios — run it manually from the VBE.
+`Core_Enums`, `Core_modNorm`, `Core_modCompare`, `Core_clsSet` are the shared **UnivCore** package. Their editing home is the sibling `../../UnivCore` project; they are deployed here via `core.manifest` + `CodeManager.Pkg_ExportCorePackage`. Local edits to `Core_*` files will be overwritten on the next package sync — make Core changes in UnivCore and re-deploy.
 
 ## Architecture
 
@@ -40,7 +39,7 @@ There is no automated test suite. `modTester.Run_SpecValidation` is a self-test 
 
 ### Column data lifecycle
 
-`modCache.GetColumnAsset(rng)` is the single chokepoint for reading a column. It returns a `clsColumnAsset` (data `clsSet` + format string + detected type). Cache key is `rng.Address(External:=True)` so workbook/sheet/address uniquely identify an asset.
+`modCache.GetColumnAsset(rng)` is the single chokepoint for reading a column. It returns a `clsColumnAsset` (data `Core_clsSet` + format string + detected type). Cache key is `rng.Address(External:=True)` so workbook/sheet/address uniquely identify an asset.
 
 Cache invalidation is **event-driven**, not time-based: `현재_통합_문서.AppEvents_SheetChange` and `AppEvents_SheetCalculate` call `modCache.InvalidateCacheBySheet` on any sheet edit/recalc outside this workbook. If you add a code path that mutates user data, do not manually invalidate — let the app events do it.
 
@@ -63,10 +62,14 @@ When changing filter behavior, update **all three layers** (detection in `modFil
 modUnivFilter ─► frmFilter01
 frmFilter01 ─► modCache, clsColumnAsset, FocusAPI, modProcessManager
 modProcessManager ─► modMatchingEngine, modResultHandler, ClipboardAPI, clsColumnAsset
-modMatchingEngine ─► modFilterUtils, clsSet, clsColumnAsset
+modMatchingEngine ─► modFilterUtils, Core_clsSet, clsColumnAsset
 modResultHandler ─► modFilterUtils
-modCache ─► clsSet, clsColumnAsset, modFilterUtils
+modCache ─► Core_clsSet, clsColumnAsset, modFilterUtils
 modShortcuts ─► modUnivFilter, frmFilter01, ClipboardAPI
+clsColumnAsset ─► Core_clsSet
+Core_clsSet ─► Core_Enums          (UnivCore package)
+Core_modCompare ─► Core_modNorm    (UnivCore package)
+Test_UnivFilterHarness ─► modTester, LogShim
 ```
 
 `modLogger.Log` is called from nearly every module but is **off by default** — `ENABLE_ALL_LOGGING = False` in `modLogger.bas`. Flip it to True during debugging; remember to flip back before export (the constant ships in the xlsb).
@@ -74,11 +77,12 @@ modShortcuts ─► modUnivFilter, frmFilter01, ClipboardAPI
 ## Conventions specific to this codebase
 
 - All comments, log messages, and user-facing strings are in **Korean**. Keep that language when editing; mixing in English breaks tone consistency with the existing code.
-- Module headers and procedure `@desc` follow the schema in the parent `Project/CLAUDE.md` — apply it to new Public Sub/Function declarations.
+- Module headers and procedure `@desc` follow the schema in the parent `VBA_Projects/CLAUDE.md` §2 — apply it to new Public Sub/Function declarations.
+- No em dash (U+2014) anywhere in source, comments included — it corrupts on the import path. Use `ChrW(&H2014)` if the character itself is needed.
 - Forms are **modeless** (`.Show vbModeless`) so Excel stays interactive. Don't switch to modal without understanding the `G_OpenForms` re-activation path.
 - `Application.Run` and `OnAction`-via-string indirection: shape buttons reference `ShowUniversalFilter`, context menu items reference `CallFilterFromMenu` / `ToggleSearchButtonsInSelection` / etc. by string. Renaming any of those Public Subs requires updating the corresponding `.OnAction =` assignments in `modUnivFilter`.
-- VBA `Public` consts/enums declared in any module are project-global — see the "Global Definitions" section of `../UnivFilter.md` for the current inventory before adding new ones.
+- VBA `Public` consts/enums declared in any module are project-global — see the "Global Definitions" section of `../UnivFilter(v2.6).md` for the current inventory before adding new ones.
 
 ## Reference document
 
-`../UnivFilter.md` is an auto-generated full-codebase snapshot (dependency graph, API surface, every module's source). When you need a quick API lookup across modules, grep that file rather than opening every `.bas`. It can drift from `src/` — when they disagree, trust `src/`.
+`../UnivFilter(v2.6).md` is an auto-generated full-codebase snapshot (dependency graph, API surface, every module's source; `../UnivFilter.md` is an older snapshot of the same kind). When you need a quick API lookup across modules, grep the snapshot rather than opening every `.bas`. It can drift from `src/` — when they disagree, trust `src/`.
