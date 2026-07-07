@@ -1,0 +1,9 @@
+[project]
+name = "UnivFIlter"
+
+[excel]
+workbook = "UnivFilter(v2.6).xlsm"
+visible = true
+
+[src]
+root = "src"
