@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`UnivFilter` — Excel VBA add-in that adds a custom Universal Filter (in-cell button + context menu + global shortcuts) to any ListObject/AutoFilter range. The shipping artifact is `../UnivFilter(v2.6).xlsb`; the files under `src/` are VBA exports of that binary's modules.
+`UnivFilter` — Excel VBA add-in that adds a custom Universal Filter (in-cell button + context menu + global shortcuts) to any ListObject/AutoFilter range. The shipping artifact is `../UnivFilter(v2.6).xlsm` (migrated from `.xlsb`); the files under `src/` are VBA exports of that workbook's modules.
 
 ## Build / Test Workflow
 
-The `_VbaHarness` dev loop is retired (no longer used on any project). Round-trip goes through `CodeManager.bas`: `ExportAllVBAElements` (xlsb → timestamped export folder) and `ImportVBA_From_ImportFolder` (files in `ThisWorkbook.Path & "\IMPORT\"` → xlsb; `.frm` requires its `.frx` next to it). Requires "Trust access to the VBA project object model" in Excel Trust Center.
+The `_VbaHarness` dev loop is retired (no longer used on any project). Round-trip goes through `CodeManager.bas`: `ExportAllVBAElements` (xlsm → timestamped export folder) and `ImportVBA_From_ImportFolder` (files in `ThisWorkbook.Path & "\IMPORT\"` → xlsm; `.frm` requires its `.frx` next to it). Requires "Trust access to the VBA project object model" in Excel Trust Center.
 
 Tests assert via `LogShim.AssertEq` (no raise on failure). `Test_UnivFilterHarness.Test_UnivFilter_SpecValidation` wraps `modTester.Run_SpecValidation`, which builds spec/report sheets inside the workbook and exercises end-to-end filter scenarios. `LogShim.bas` is a plain project-owned test helper now (not harness-managed) — edit as needed.
 
@@ -72,7 +72,7 @@ Core_modCompare ─► Core_modNorm    (UnivCore package)
 Test_UnivFilterHarness ─► modTester, LogShim
 ```
 
-`modLogger.Log` is called from nearly every module but is **off by default** — `ENABLE_ALL_LOGGING = False` in `modLogger.bas`. Flip it to True during debugging; remember to flip back before export (the constant ships in the xlsb).
+`modLogger.Log` is called from nearly every module but is **off by default** — `ENABLE_ALL_LOGGING = False` in `modLogger.bas`. Flip it to True during debugging; remember to flip back before export (the constant ships in the xlsm).
 
 ## Conventions specific to this codebase
 
