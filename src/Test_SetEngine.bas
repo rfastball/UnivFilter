@@ -1,6 +1,6 @@
 Attribute VB_Name = "Test_SetEngine"
 ' @desc dict 셋 엔진 계약 특성화 단위테스트 담당
-' @depends Core_clsSet, LogShim
+' @depends clsSet, LogShim
 Option Explicit
 
 ' 리팩토링(엔진 벤더링 교체) 전후 동작 불변을 보증하는 특성화 테스트.
@@ -8,11 +8,11 @@ Option Explicit
 
 ' @desc Compare srAllSplit의 3분할 결과를 검증함
 Public Sub Test_Set_Compare_AllSplit()
-    Dim setA As Core_clsSet, setB As Core_clsSet
+    Dim setA As clsSet, setB As clsSet
     Dim vRes As Variant
 
-    Set setA = New Core_clsSet
-    Set setB = New Core_clsSet
+    Set setA = New clsSet
+    Set setB = New clsSet
     setA.LoadFromArray Array(CDbl(1), CDbl(2), CDbl(3))
     setB.LoadFromArray Array(CDbl(2), CDbl(3), CDbl(4))
 
@@ -28,11 +28,11 @@ End Sub
 
 ' @desc Union/Difference 래퍼의 결과 집합을 검증함
 Public Sub Test_Set_Union_Difference()
-    Dim setA As Core_clsSet, setB As Core_clsSet
-    Dim setU As Core_clsSet, setD As Core_clsSet
+    Dim setA As clsSet, setB As clsSet
+    Dim setU As clsSet, setD As clsSet
 
-    Set setA = New Core_clsSet
-    Set setB = New Core_clsSet
+    Set setA = New clsSet
+    Set setB = New clsSet
     setA.LoadFromArray Array("a", "b")
     setB.LoadFromArray Array("b", "c")
 
@@ -47,14 +47,14 @@ End Sub
 
 ' @desc LoadFromArray가 Empty/Error 항목을 건너뛰는지 검증함
 Public Sub Test_Set_LoadFromArray_SkipsInvalid()
-    Dim setA As Core_clsSet
+    Dim setA As clsSet
 
-    Set setA = New Core_clsSet
+    Set setA = New clsSet
     setA.LoadFromArray Array("x", Empty, CVErr(2042), "y")
     LogShim.AssertEq "set_load_skips_empty_error", 2, setA.Count
 
     ' 배열이 아닌 단일 값은 Add 경로로 수용
-    Set setA = New Core_clsSet
+    Set setA = New clsSet
     setA.LoadFromArray "solo"
     LogShim.AssertEq "set_load_single_value", 1, setA.Count
 
@@ -66,9 +66,9 @@ End Sub
 
 ' @desc 문자열 키의 대소문자 무시 계약을 검증함
 Public Sub Test_Set_CaseInsensitive_Keys()
-    Dim setA As Core_clsSet
+    Dim setA As clsSet
 
-    Set setA = New Core_clsSet
+    Set setA = New clsSet
     setA.Add "Apple"
     setA.Add "APPLE"
 
@@ -78,11 +78,11 @@ End Sub
 
 ' @desc 빈 집합과의 연산이 안전한지 검증함
 Public Sub Test_Set_EmptySet_Operations()
-    Dim setA As Core_clsSet, setE As Core_clsSet
+    Dim setA As clsSet, setE As clsSet
     Dim vRes As Variant
 
-    Set setA = New Core_clsSet
-    Set setE = New Core_clsSet
+    Set setA = New clsSet
+    Set setE = New clsSet
     setA.LoadFromArray Array("a", "b")
 
     vRes = setA.Compare(setE, srAllSplit)
@@ -99,9 +99,9 @@ End Sub
 
 ' @desc Variant 키 의미론(숫자 1과 문자 "1" 구분)을 검증함
 Public Sub Test_Set_NumericStringKey_Distinct()
-    Dim setA As Core_clsSet
+    Dim setA As clsSet
 
-    Set setA = New Core_clsSet
+    Set setA = New clsSet
     setA.Add CDbl(1)
     LogShim.AssertEq "set_numkey_not_strkey", False, setA.Contains("1")
 

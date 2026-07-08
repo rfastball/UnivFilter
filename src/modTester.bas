@@ -332,6 +332,16 @@ Private Sub Record_Result( _
     End If
 End Sub
 
+' @desc 스펙 검증이 생성한 시트 2종을 삭제함 (prune push 전 정리용)
+Public Sub Cleanup_TestSheets()
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    ThisWorkbook.Worksheets("Valid_Spec_Sheet").Delete
+    ThisWorkbook.Worksheets("Test_Fail_Report").Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+End Sub
+
 Private Sub SetupReportSheet()
     Application.DisplayAlerts = False
     On Error Resume Next

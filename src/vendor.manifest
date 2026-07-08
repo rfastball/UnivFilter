@@ -1,0 +1,7 @@
+format: 1
+vendor: UnivDB-DictEngine
+source_project: ../UnivDB
+source_commit: a8599796f263c36f39264ab82c874e7ed464fe9c
+snapshot_date: 2026-07-08
+files: clsSet.cls, modIndexKey.bas
+local_delta: none

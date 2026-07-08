@@ -16,7 +16,7 @@ Private pColCache As Object
 Public Function GetColumnAsset(ByVal rngCol As Range) As clsColumnAsset
     Dim sKey As String
     Dim newAsset As clsColumnAsset
-    Dim newSet As Core_clsSet
+    Dim newSet As clsSet
     Dim vRaw As Variant
     Dim vFlat As Variant
     Dim sFmt As String
@@ -98,8 +98,8 @@ Public Function GetColumnAsset(ByVal rngCol As Range) As clsColumnAsset
     ' (2) 2차원 -> 1차원 평탄화 (Flatten)
     vFlat = FlattenArray(vRaw)
     
-    ' (3) Core_clsSet 생성 및 적재
-    Set newSet = New Core_clsSet
+    ' (3) clsSet 생성 및 적재
+    Set newSet = New clsSet
     newSet.LoadFromArray vFlat
     
     ' (4) 자산 객체 포장 (Init 호출 시 sType 전달!)
