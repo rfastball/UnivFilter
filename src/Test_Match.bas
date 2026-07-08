@@ -107,8 +107,16 @@ Private Function BuildTestAsset() As clsColAsset
     sThousand.Add "1,000"
     Set vm(CStr(1000#)) = sThousand
 
+    Dim rbk As Object
+    Set rbk = CreateObject("Scripting.Dictionary")
+    rbk.CompareMode = vbTextCompare
+    rbk("0.50") = 1
+    rbk("50%") = 1
+    rbk("1,000") = 1
+    rbk("Apple") = 1
+
     Dim asset As New clsColAsset
-    asset.Init displays, vm, True, 5, "TEST!A1", 1
+    asset.Init displays, vm, rbk, 1, 5, "TEST!A1", 1
     Set BuildTestAsset = asset
 End Function
 

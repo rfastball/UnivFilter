@@ -14,18 +14,21 @@ Option Explicit
 Private mDisplays As clsSet
 ' 값 지도: CStr(Value2) -> 그 값을 렌더링하는 표시 키 clsSet (숫자/날짜 셀만)
 Private mValueMap As Object
-Private mHasBlanks As Boolean
+' 행수 지도: 표시 키 -> 해당 키의 행수 (적용 자가검증용)
+Private mRowCountByKey As Object
+Private mBlankCount As Long
 Private mRowCount As Long
 Private mID As String
 Private mGeneration As Long
 
 ' @desc 스캔 산출물 주입받아 자산을 초기화함
 Public Sub Init(ByVal displaySet As clsSet, ByVal valueMap As Object, _
-                ByVal bHasBlanks As Boolean, ByVal lRowCount As Long, _
-                ByVal sID As String, ByVal lGeneration As Long)
+                ByVal rowCountByKey As Object, ByVal lBlankCount As Long, _
+                ByVal lRowCount As Long, ByVal sID As String, ByVal lGeneration As Long)
     Set mDisplays = displaySet
     Set mValueMap = valueMap
-    mHasBlanks = bHasBlanks
+    Set mRowCountByKey = rowCountByKey
+    mBlankCount = lBlankCount
     mRowCount = lRowCount
     mID = sID
     mGeneration = lGeneration
@@ -39,8 +42,16 @@ Public Property Get ValueMap() As Object
     Set ValueMap = mValueMap
 End Property
 
+Public Property Get RowCountByKey() As Object
+    Set RowCountByKey = mRowCountByKey
+End Property
+
+Public Property Get BlankCount() As Long
+    BlankCount = mBlankCount
+End Property
+
 Public Property Get HasBlanks() As Boolean
-    HasBlanks = mHasBlanks
+    HasBlanks = (mBlankCount > 0)
 End Property
 
 Public Property Get RowCount() As Long
@@ -54,3 +65,13 @@ End Property
 Public Property Get Generation() As Long
     Generation = mGeneration
 End Property
+
+' @desc 표시 키 집합 받아 기대 가시 행수 반환, 미지 키는 0으로 집계
+Public Function ExpectedRows(ByVal keySet As clsSet, ByVal bWithBlanks As Boolean) As Long
+    Dim n As Long, vKey As Variant
+    For Each vKey In keySet.KeysArray
+        If mRowCountByKey.exists(vKey) Then n = n + mRowCountByKey(vKey)
+    Next vKey
+    If bWithBlanks Then n = n + mBlankCount
+    ExpectedRows = n
+End Function

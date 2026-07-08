@@ -1,0 +1,90 @@
+Attribute VB_Name = "modReport"
+' @desc 누락/보정 리포트 구성과 클립보드 복사 담당
+' @depends ClipboardAPI, modLogger
+Option Explicit
+
+Private Const MISSING_PREVIEW_MAX As Long = 5
+
+' @desc 매칭 결과 받아 상태/누락/보정 메시지 딕셔너리 반환
+Public Function BuildMessages(ByVal outcome As Object, ByVal bExclude As Boolean, _
+                              ByVal applyInfo As Object) As Object
+    Dim msgs As Object
+    Set msgs = CreateObject("Scripting.Dictionary")
+
+    Dim vMissing As Variant
+    vMissing = outcome("Missing")
+    Dim nMissing As Long
+    nMissing = ArrCount(vMissing)
+
+    Dim corrections As Object
+    Set corrections = outcome("Corrections")
+
+    ' 상태 메시지
+    Dim s As String
+    s = "매칭 " & outcome("Matched").Count & "건"
+    If bExclude Then s = s & " 제외"
+    If nMissing > 0 Then s = s & ", 누락 " & nMissing & "건"
+    If corrections.Count > 0 Then s = s & ", 자동보정 " & corrections.Count & "건"
+    msgs("StatusMessage") = s
+
+    ' 누락 메시지 (포함 모드 전용, 클립보드 복사는 호출부가 CopyMissing으로)
+    If nMissing > 0 And Not bExclude Then
+        Dim m As String, i As Long, shown As Long
+        m = "다음 " & nMissing & "건은 목록에 없습니다:" & vbCrLf
+        For i = LBound(vMissing) To UBound(vMissing)
+            If shown >= MISSING_PREVIEW_MAX Then
+                m = m & "... 외 " & (nMissing - shown) & "건" & vbCrLf
+                Exit For
+            End If
+            m = m & "- " & CStr(vMissing(i)) & vbCrLf
+            shown = shown + 1
+        Next i
+        m = m & vbCrLf & "(누락 목록이 클립보드에 복사되었습니다)"
+        msgs("MissingMessage") = m
+    Else
+        msgs("MissingMessage") = ""
+    End If
+
+    ' 자동보정 메시지 (입력 -> 실제 표시)
+    If corrections.Count > 0 Then
+        Dim c As String, vKey As Variant
+        c = "입력을 표시 형식에 맞춰 보정했습니다:" & vbCrLf
+        For Each vKey In corrections.Keys
+            c = c & "- " & CStr(vKey) & " -> " & CStr(corrections(vKey)) & vbCrLf
+        Next vKey
+        msgs("CorrectionMessage") = c
+    Else
+        msgs("CorrectionMessage") = ""
+    End If
+
+    ' 255자 초과 탈락 경고
+    Dim vDropped As Variant
+    vDropped = applyInfo("DroppedLong")
+    If ArrCount(vDropped) > 0 Then
+        msgs("WarningMessage") = "255자를 초과하는 값 " & ArrCount(vDropped) & _
+                                 "건은 필터에 반영되지 못했습니다."
+    Else
+        msgs("WarningMessage") = ""
+    End If
+
+    Set BuildMessages = msgs
+End Function
+
+' @desc 누락 배열을 줄바꿈 목록으로 클립보드에 복사함
+Public Sub CopyMissing(ByVal vMissing As Variant)
+    If ArrCount(vMissing) = 0 Then Exit Sub
+    Dim s As String, i As Long
+    For i = LBound(vMissing) To UBound(vMissing)
+        If Len(s) > 0 Then s = s & vbCrLf
+        s = s & CStr(vMissing(i))
+    Next i
+    If Not ClipboardAPI.SetClipboardText(s) Then
+        Log "CopyMissing: 클립보드 복사 실패", lvlWarning
+    End If
+End Sub
+
+Private Function ArrCount(ByVal v As Variant) As Long
+    If Not IsArray(v) Then Exit Function
+    ArrCount = UBound(v) - LBound(v) + 1
+    If ArrCount < 0 Then ArrCount = 0
+End Function
