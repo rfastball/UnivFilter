@@ -21,9 +21,9 @@ Public Sub UnivFilter_QuickHandler()
     ' 2. 데이터 분석 실행 (여기서 HYBRID면 폼 내부에서 이미 잠금(Lock)이 걸림!)
     frm.StartInitialization
     
-    ' 3. 상태에 따른 분기 처리
-    Select Case frm.AssetType
-        Case "HYBRID", "ERROR", "DATE"
+    ' 3. 상태에 따른 분기 처리 (정책 단일 소스 = modTypePolicy)
+    Select Case modTypePolicy.GetModePolicy(frm.AssetType).RequiresFormInQuickMode
+        Case True
             ' [경로 A] 데이터가 지저분함 -> 폼을 띄워서 사용자에게 보여줌 (이미 잠겨있음)
             frm.txtFilterValues.text = sClip  ' 클립보드 내용 입력
             modUnivFilter.MoveFormToCell_API frm, ActiveCell '폼 띄우기 전 위치이동

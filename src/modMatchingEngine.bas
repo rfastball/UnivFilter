@@ -28,9 +28,9 @@ Public Function CalculateCriteria( _
     Log "CalculateCriteria: 열 정체성 확인 (ID: " & sColIdentity & " -> Enum: " & eType & ")", lvlDebug
     
     ' --------------------------------------------------------------------------
-    ' 데이터 정합성 오류 시 -> 텍스트 모드로 강제 전환 HYBRID, ERROR, DATE
+    ' 데이터 정합성 오류 시 -> 텍스트 모드로 강제 전환 (정책 단일 소스 = modTypePolicy)
     ' --------------------------------------------------------------------------
-    If colAsset.ColumnType = "HYBRID" Or colAsset.ColumnType = "ERROR" Or colAsset.ColumnType = "DATE" Then
+    If modTypePolicy.GetModePolicy(colAsset.ColumnType).ForceTextStrategy Then
         Log "CalculateCriteria: [WARN] Hybrid/Error 컬럼 감지 -> String 전략으로 강제 우회", lvlWarning
         eType = fdString ' 강제로 텍스트 타입으로 간주
     End If

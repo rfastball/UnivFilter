@@ -115,24 +115,21 @@ Public Sub StartInitialization()
     Log "StartInitialization: 자산 수령 완료 (Type: " & m_Asset.DetectedType & ", Count: " & m_Asset.data.Count & ")", lvlDebug
     
     ' =========================================================
-    ' [UI Lock] 데이터 타입에 따른 UI 강제 잠금 분기 처리
+    ' [UI Lock] 데이터 타입에 따른 UI 강제 잠금 (정책 단일 소스 = modTypePolicy)
     ' =========================================================
-    Select Case m_Asset.DetectedType
-        ' 1. 데이터 오염/혼합 -> Hybrid 모드 잠금
-        Case "HYBRID", "ERROR"
+    Select Case modTypePolicy.GetModePolicy(m_Asset.DetectedType).LockTag
+        Case "HYBRID"
             Log "StartInitialization: 정합성 이슈(" & m_Asset.DetectedType & ") -> Hybrid 잠금 실행", lvlWarning
             Me.EnforceHybridMode
-            
-        ' 2. 반올림/퍼센트 이슈 -> Rounding 모드 잠금 (NEW)
-        Case "ROUNDED", "PERCENT_ROUNDED"
+
+        Case "ROUNDING"
             Log "StartInitialization: 반올림 이슈(" & m_Asset.DetectedType & ") -> Rounding 잠금 실행", lvlWarning
             Me.EnforceRoundingMode
-            
-        ' 3. 날짜... 완전일치 구현 못하겄다 항복
+
         Case "DATE"
             Log "StartInitialization: 날짜 이슈(" & m_Asset.DetectedType & ") -> Date 잠금 실행", lvlWarning
             Me.EnforceDateMode
-            
+
         Case Else
             ' 정상 상태: 아무것도 하지 않음 (기본값 유지)
     End Select

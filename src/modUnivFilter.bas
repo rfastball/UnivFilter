@@ -115,9 +115,8 @@ Sub ShowUniversalFilter()
         .InjectRelativeCol = relativeCol        ' 상대 열 번호 주입
         
         .StartInitialization                  ' 모든 준비가 끝난 후 초기화 실행! (중요)
-        If .AssetType = "HYBRID" Or .AssetType = "ERROR" Then
-            .EnforceHybridMode                  ' 하이브리드/에러 데이터 감지 시 UI 강제 잠금 실행
-        End If
+        ' [Stage 7] StartInitialization이 정책(modTypePolicy) 기반으로 잠금을 이미
+        ' 수행하므로, 직후의 중복 EnforceHybridMode 호출은 제거됨 (동작 동일)
         G_OpenForms.Add frmNew, formKey         ' 관리 대장 등록
         
         MoveFormToCursor_API frmNew             ' 마우스 위치로 이동
