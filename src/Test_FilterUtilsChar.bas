@@ -72,26 +72,26 @@ Public Sub Test_Char_GetUniqueCleanData()
     Dim dict As Object
 
     ' 숫자: 천단위 콤마 제거 후 CDbl 키, 값은 원본 보존
-    Set dict = modFilterUtils.GetUniqueCleanData(Array("3,000", "50"), fdNumber)
+    Set dict = modNormalize.GetUniqueCleanData(Array("3,000", "50"), fdNumber)
     LogShim.AssertEq "ucd_num_count", 2, dict.Count
     LogShim.AssertEq "ucd_num_comma_key", True, dict.exists(CDbl(3000))
     LogShim.AssertEq "ucd_num_original_kept", "3,000", dict(CDbl(3000))
 
     ' 회계 대시 표기는 0으로
-    Set dict = modFilterUtils.GetUniqueCleanData(Array("\-"), fdNumber)
+    Set dict = modNormalize.GetUniqueCleanData(Array("\-"), fdNumber)
     LogShim.AssertEq "ucd_num_acc_dash_zero", True, dict.exists(CDbl(0))
 
     ' 퍼센트: % 기호가 있으면 /100, 없으면 그대로
-    Set dict = modFilterUtils.GetUniqueCleanData(Array("50%"), fdPercent)
+    Set dict = modNormalize.GetUniqueCleanData(Array("50%"), fdPercent)
     LogShim.AssertEq "ucd_pct_scaled", True, dict.exists(CDbl(0.5))
-    Set dict = modFilterUtils.GetUniqueCleanData(Array("50"), fdPercent)
+    Set dict = modNormalize.GetUniqueCleanData(Array("50"), fdPercent)
     LogShim.AssertEq "ucd_pct_raw", True, dict.exists(CDbl(50))
 
     ' 변환 실패는 실패 바스켓: Key=원본, Value=False
-    Set dict = modFilterUtils.GetUniqueCleanData(Array("abc"), fdNumber)
+    Set dict = modNormalize.GetUniqueCleanData(Array("abc"), fdNumber)
     LogShim.AssertEq "ucd_fail_basket_flag", False, dict("abc")
 
     ' 멀티라인 문자열 입력은 줄 단위로 분해
-    Set dict = modFilterUtils.GetUniqueCleanData("a" & vbLf & "b", fdString)
+    Set dict = modNormalize.GetUniqueCleanData("a" & vbLf & "b", fdString)
     LogShim.AssertEq "ucd_multiline_split", 2, dict.Count
 End Sub

@@ -91,7 +91,10 @@ Public Sub Test_Set_EmptySet_Operations()
     LogShim.AssertEq "set_vs_empty_diffother", 0, vRes(2).Count
 
     vRes = setE.Compare(setA, srAllSplit)
+    LogShim.LogD "empty_vs_set_diag", "isarr=" & IsArray(vRes) & " lb=" & LBound(vRes) & " ub=" & UBound(vRes)
     LogShim.AssertEq "empty_vs_set_common", 0, vRes(0).Count
+    LogShim.LogD "empty_vs_set_diag", "t1=" & TypeName(vRes(1))
+    LogShim.LogD "empty_vs_set_diag", "t2=" & TypeName(vRes(2))
     LogShim.AssertEq "empty_vs_set_diffother", 2, vRes(2).Count
 
     LogShim.AssertEq "empty_toarray_ubound", -1, UBound(setE.ToArray)

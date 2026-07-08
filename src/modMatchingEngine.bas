@@ -45,7 +45,7 @@ Public Function CalculateCriteria( _
         eTypeForInput = fdString
     End If
     
-    Set dictInput = modFilterUtils.GetUniqueCleanData(vInput, eTypeForInput)
+    Set dictInput = modNormalize.GetUniqueCleanData(vInput, eTypeForInput)
     Log "CalculateCriteria: 입력값 정제 완료 (Count: " & dictInput.Count & ")", lvlDebug
     
     ' 3. [전략 배분] 타입에 따른 전략 분기 (Dispatch)
