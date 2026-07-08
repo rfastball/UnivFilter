@@ -64,4 +64,3 @@ End Property
 Public Property Get ColumnFormat() As String
     ColumnFormat = mFormat
 End Property
-

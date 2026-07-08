@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "Utilities"
+Attribute VB_Name = "Utilities"
 Option Explicit
 
 
@@ -70,5 +70,3 @@ Public Sub OptimizedMode(ByVal enable As Boolean)
     
     isOptimized = enable
 End Sub
-
-

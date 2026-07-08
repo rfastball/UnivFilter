@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "CodeManager"
+Attribute VB_Name = "CodeManager"
 
 Option Explicit
 

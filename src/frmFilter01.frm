@@ -1,4 +1,4 @@
-﻿VERSION 5.00
+VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmFilter01 
    Caption         =   "필터설정"
    ClientHeight    =   3536
@@ -589,4 +589,3 @@ End Sub
 Private Sub UserForm_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
     Call RunGlobalShortcuts(KeyCode, Shift)
 End Sub
-

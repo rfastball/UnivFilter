@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "FocusAPI"
+Attribute VB_Name = "FocusAPI"
 ' [윈도우 제어: 창 찾기 및 포커스]
 Private Declare PtrSafe Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As String, ByVal lpWindowName As String) As LongPtr
 Private Declare PtrSafe Function GetWindow Lib "user32" (ByVal hwnd As LongPtr, ByVal wCmd As Long) As LongPtr
@@ -44,4 +44,3 @@ Public Function FocusWindowByPartialTitle(partialTitle As String) As Boolean
     
     FocusWindowByPartialTitle = False
 End Function
-

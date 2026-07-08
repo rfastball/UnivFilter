@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "modLogger"
+Attribute VB_Name = "modLogger"
 Option Explicit
 
 ' === 설정 영역 ===

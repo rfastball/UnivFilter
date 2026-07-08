@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "modUnivFilter"
+Attribute VB_Name = "modUnivFilter"
 Option Explicit
 
 ' ==============================================================================
@@ -437,4 +437,3 @@ End Sub
 Sub CallFilterFromMenu()
     Call ShowUniversalFilter
 End Sub
-

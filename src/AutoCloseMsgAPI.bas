@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "AutoCloseMsgAPI"
+Attribute VB_Name = "AutoCloseMsgAPI"
 ' ==============================================================================
 ' [외부 API 및 상수 선언]
 ' ==============================================================================
@@ -20,4 +20,3 @@ Public Sub AutoCloseMsgBox_Popup(msg As String, Optional sec As Long = 1, Option
     MessageBoxTimeout 0, msg, title, MB_ICONINFO + MB_TOPMOST + MB_SETFOREGROUND, 0, sec * 1000
 End Sub
     
-

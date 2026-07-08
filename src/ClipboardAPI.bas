@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "ClipboardAPI"
+Attribute VB_Name = "ClipboardAPI"
 Option Explicit
 
 ' ========================================================================================

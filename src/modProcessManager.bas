@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "modProcessManager"
+Attribute VB_Name = "modProcessManager"
 Option Explicit
 
 ' ==============================================================================
@@ -113,5 +113,3 @@ Public Function ProcessMissingData(ByVal vMissing As Variant) As String
     
     ProcessMissingData = sResultMsg
 End Function
-
-

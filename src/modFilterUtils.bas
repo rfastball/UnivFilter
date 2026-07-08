@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "modFilterUtils"
+Attribute VB_Name = "modFilterUtils"
 Option Explicit
 
 ' ==============================================================================
@@ -799,5 +799,3 @@ Public Function GetPercentageFilterString(ByVal vValue As Variant, ByVal sFormat
     ' [LOG] 퍼센트 변환 확인
     Log "GetPercentageFilterString: " & vValue & " -> " & GetPercentageFilterString, lvlDebug
 End Function
-
-

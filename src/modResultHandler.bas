@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "modResultHandler"
+Attribute VB_Name = "modResultHandler"
 Option Explicit
 
 ' ==============================================================================
@@ -218,5 +218,3 @@ Public Sub GenerateResultReport( _
     Log "GenerateResultReport: " & outStatus, lvlInfo
     
 End Sub
-
-

@@ -1,4 +1,4 @@
-﻿Attribute VB_Name = "modShortcuts"
+Attribute VB_Name = "modShortcuts"
 Option Explicit
 
 ' ==========================================================
@@ -102,5 +102,3 @@ Private Function SetupFormData(ByRef frm As frmFilter01) As Boolean
     AutoCloseMsgBox_Popup "표(Table) 또는 자동 필터 범위 내에서 실행해 주세요.", 1, "UnivFilter 알림"
     
 End Function
-
-

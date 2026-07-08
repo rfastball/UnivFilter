@@ -491,4 +491,3 @@ Private Function MapIdentityToEnum(sID As String) As FilterDataType
         Case Else:               MapIdentityToEnum = fdAuto
     End Select
 End Function
-
