@@ -35,7 +35,13 @@ Public Sub ApplyFilterResult( _
     
     ' 2. 기준값 및 서식 정보 추출
     arrCriteria = dictResult("Criteria")
-    sType = modColumnType.GetColumnIdentity(rngTable.Columns(lColIndex))
+    ' [6b] 타입은 엔진이 판별해 담아준 값을 신뢰 (GetColumnIdentity 재판별 제거).
+    '      서식(sFmt)은 필터 직전 상태 기준 재유도가 의도된 차이라 유지.
+    If dictResult.exists("ColumnType") Then
+        sType = dictResult("ColumnType")
+    Else
+        sType = modColumnType.GetColumnIdentity(rngTable.Columns(lColIndex))
+    End If
     sFmt = modColumnType.GetRepresentativeFormat(rngTable.Columns(lColIndex))
     
     ' [LOG] 타겟 컬럼 정보 확인
