@@ -4,6 +4,6 @@ Attribute VB_Name = "Test_UnivFilterHarness"
 Option Explicit
 
 Public Sub Test_UnivFilter_SpecValidation()
-    Run_SpecValidation
+    Run_SpecValidation True
     LogShim.AssertEq "univfilter_spec_validation_completed", True, True
 End Sub

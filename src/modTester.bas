@@ -1,4 +1,6 @@
-﻿Attribute VB_Name = "modTester"
+Attribute VB_Name = "modTester"
+' @desc 서식 시나리오 e2e 검증 스위트 실행 담당
+' @depends LogShim, modCache, modMatchingEngine, modResultHandler
 Option Explicit
 
 ' ==============================================================================
@@ -16,7 +18,8 @@ Private NextExpCol As Long      ' 실험 데이터 기록용 열 위치 (우측)
 Private sReport As String
 Private iPass As Long, iFail As Long
 
-Public Sub Run_SpecValidation()
+' @desc 스펙 시나리오 전체 실행해 리포트 시트 생성함, bSilent True 시 팝업 억제
+Public Sub Run_SpecValidation(Optional bSilent As Boolean = False)
     On Error Resume Next
     Application.ScreenUpdating = False
     
@@ -158,9 +161,9 @@ Public Sub Run_SpecValidation()
             rngExpHeader.Resize(3).AutoFilter
             wsReport.Range("I1").Select
         End If
-        MsgBox "검증 완료!" & vbCrLf & "성공: " & iPass & " / 실패: " & iFail, vbExclamation
+        If Not bSilent Then MsgBox "검증 완료!" & vbCrLf & "성공: " & iPass & " / 실패: " & iFail, vbExclamation
     Else
-        MsgBox "완벽합니다! (All Pass)", vbInformation
+        If Not bSilent Then MsgBox "완벽합니다! (All Pass)", vbInformation
     End If
 End Sub
 
@@ -204,12 +207,20 @@ Private Sub Test_Spec( _
     On Error Resume Next
     Set colAsset = modCache.GetColumnAsset(wsSpec.Range("A2:A3"))
     On Error GoTo 0
-    If colAsset Is Nothing Then: iFail = iFail + 1: Exit Sub
+    If colAsset Is Nothing Then
+        iFail = iFail + 1
+        LogShim.AssertEq "spec_" & sTitle, "PASS", "FAIL(asset_nothing)"
+        Exit Sub
+    End If
     
     Dim bExact As Boolean: bExact = (sType = "Exact")
     Dim dictResult As Object
     Set dictResult = modMatchingEngine.CalculateCriteria(Array(sKeyword), colAsset, bExact, False)
-    If dictResult Is Nothing Then: iFail = iFail + 1: Exit Sub
+    If dictResult Is Nothing Then
+        iFail = iFail + 1
+        LogShim.AssertEq "spec_" & sTitle, "PASS", "FAIL(criteria_nothing)"
+        Exit Sub
+    End If
     
     modResultHandler.ApplyFilterResult loSpec.Range, 1, dictResult, False
     
@@ -250,7 +261,8 @@ Private Sub Test_Spec( _
         
         sReport = sReport & "[FAIL] " & sTitle & " (" & sReason & ")" & vbCrLf
     End If
-    
+
+    LogShim.AssertEq "spec_" & sTitle, "PASS", sResultStatus
     Record_Result sTitle, vValue, sFmt, vNoise, sNoiseFmt, sKeyword, sType, sActualView, sReason, sResultStatus
 End Sub
 
@@ -368,5 +380,3 @@ Private Function GetSafeNoise(vTarget As Variant) As Variant
         Case Else: GetSafeNoise = "###_NOISE_DATA_###"
     End Select
 End Function
-
-
