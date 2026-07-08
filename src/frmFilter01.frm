@@ -64,59 +64,41 @@ End Property
 ' 목적: 단축키 퀵모드 실행 (UI 조작 없이 로직만 수행)
 ' ----------------------------------------------------------
 Public Sub RunQuickFilter(ByVal clipText As String)
-    Log "RunQuickFilter: 시작", lvlInfo
-    
-    ' 1. 자산 생성 (내부 메서드 활용)
+    ' [Stage 8, D7] 비즈니스 로직은 modProcessManager로 이동 - 폼은 위임만 (표면 불변)
     Me.StartInitialization
-    
-    ' 2. 오케스트레이터 직접 호출 (btnApply_Click 우회 -> UI 오버헤드 제거)
-    '    퀵 모드는 보통 '완전 일치'를 원하므로 Partial=False로 넘깁니다.
-    Dim dictResult As Object
-    Set dictResult = modProcessManager.ExecuteFilterProcess( _
-                        clipText, _
-                        m_Asset, _
-                        m_rngFilterArea, _
-                        InjectRelativeCol, _
-                        False, _
-                        False, _
-                        False)
-
-    ' 누락 데이터 처리 (제외 모드가 아닐 때만)
-    If Not G_LastExcludeMode Then
-        Dim sMissingMsg As String
-        sMissingMsg = modProcessManager.ProcessMissingData(dictResult("MissingData"))
-        
-        ' 누락된 게 있을 때만 팝업 (사용자 주의 환기)
-        If sMissingMsg <> "" Then
-            AutoCloseMsgBox_Popup sMissingMsg, 2, "누락 데이터 알림"
-        End If
-    End If
+    modProcessManager.ExecuteQuickFilter clipText, m_Asset, m_rngFilterArea, InjectRelativeCol
 End Sub
 ' ==============================================================================
 ' [Asset Initialization] 데이터 자산화 및 고속 로드
 ' ==============================================================================
 Public Sub StartInitialization()
+    ' [Stage 8, D7] 자산 취득과 UI 잠금을 분할 (공개 시그니처 불변)
+    If Not LoadColumnAsset() Then Exit Sub
+    ApplyTypeLock
+End Sub
+
+' [내부 1/2] 캐시 매니저(modCache)에게 자산 요청
+' 설명: 데이터 로드, 평탄화(에러 처리 포함), 분석, 캐싱까지
+'       모두 modCache.GetColumnAsset이 처리한다.
+Private Function LoadColumnAsset() As Boolean
     Log "StartInitialization: 데이터 로드 및 분석 시작", lvlInfo
 
     ' 데이터 범위가 지정되지 않은 경우 즉시 종료
     If m_rngBody Is Nothing Then
         Log "StartInitialization: m_rngBody가 Nothing이므로 중단", lvlWarning
-        Exit Sub
+        LoadColumnAsset = False
+        Exit Function
     End If
-    
-' =========================================================
-    ' [CORE FIX] 캐시 매니저(modCache)에게 자산 요청
-    ' 설명: 이제 데이터 로드, 평탄화(에러 처리 포함), 분석, 캐싱까지
-    '       모두 modCache.GetColumnAsset이 알아서 처리합니다.
-    ' =========================================================
+
     Set m_Asset = modCache.GetColumnAsset(m_rngBody)
-    
+
     ' [LOG] 자산 수령 확인
     Log "StartInitialization: 자산 수령 완료 (Type: " & m_Asset.DetectedType & ", Count: " & m_Asset.data.Count & ")", lvlDebug
-    
-    ' =========================================================
-    ' [UI Lock] 데이터 타입에 따른 UI 강제 잠금 (정책 단일 소스 = modTypePolicy)
-    ' =========================================================
+    LoadColumnAsset = True
+End Function
+
+' [내부 2/2] 데이터 타입에 따른 UI 강제 잠금 (정책 단일 소스 = modTypePolicy)
+Private Sub ApplyTypeLock()
     Select Case modTypePolicy.GetModePolicy(m_Asset.DetectedType).LockTag
         Case "HYBRID"
             Log "StartInitialization: 정합성 이슈(" & m_Asset.DetectedType & ") -> Hybrid 잠금 실행", lvlWarning

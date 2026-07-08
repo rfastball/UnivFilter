@@ -88,6 +88,51 @@ ErrorHandler:
 End Function
 
 ' ------------------------------------------------------------------------------
+' 함수명: ExecuteQuickFilter (Stage 8, D7: 구 frmFilter01.RunQuickFilter 본문)
+' 목적: 퀵 모드(Ctrl+Shift+Q) 필터 실행 + 결과 표면(에러/누락 팝업) 처리
+' ------------------------------------------------------------------------------
+' @desc 클립보드 텍스트와 자산 받아 퀵 필터 실행함, 누락/에러 시 팝업 알림
+Public Sub ExecuteQuickFilter( _
+    ByVal sClipText As String, _
+    ByVal colAsset As clsColumnAsset, _
+    ByVal rngFilterArea As Range, _
+    ByVal lRelativeCol As Long)
+
+    Log "ExecuteQuickFilter: 시작", lvlInfo
+
+    ' 오케스트레이터 직접 호출 - 퀵 모드는 완전 일치(Partial=False) 고정
+    Dim dictResult As Object
+    Set dictResult = ExecuteFilterProcess( _
+                        sClipText, _
+                        colAsset, _
+                        rngFilterArea, _
+                        lRelativeCol, _
+                        False, _
+                        False, _
+                        False)
+
+    ' 런타임 에러 시 팝업 (구 ApplyFilterResult 내부 MsgBox와 동등한 표면)
+    ' 엔진 중단(ErrorMsg만 존재)은 기존과 동일하게 조용히 종료
+    If Not dictResult("IsSuccess") Then
+        If dictResult.exists("ErrorNumber") Then
+            MsgBox "Filter Error: " & dictResult("ErrorMsg"), vbCritical
+        End If
+        Exit Sub
+    End If
+
+    ' 누락 데이터 처리 (제외 모드가 아닐 때만)
+    If Not G_LastExcludeMode Then
+        Dim sMissingMsg As String
+        sMissingMsg = ProcessMissingData(dictResult("MissingData"))
+
+        ' 누락된 게 있을 때만 팝업 (사용자 주의 환기)
+        If sMissingMsg <> "" Then
+            AutoCloseMsgBox_Popup sMissingMsg, 2, "누락 데이터 알림"
+        End If
+    End If
+End Sub
+
+' ------------------------------------------------------------------------------
 ' 함수명: ProcessMissingData
 ' 목적: 누락된 데이터가 있을 경우 클립보드에 복사하고 결과 메시지를 반환
 ' ------------------------------------------------------------------------------

@@ -53,6 +53,29 @@ Public Sub Test_Gen_StaleAsset_FailFast()
     Teardown ws
 End Sub
 
+' @desc 보호 시트 필터 에러가 dict 에러 채널로 전달되는지 검증함 (Stage 8 재던지기 경로)
+Public Sub Test_Gen_ErrorChannel_ProtectedSheet()
+    Dim ws As Worksheet
+    Set ws = SetupSheet()
+
+    modCache.InvalidateCache
+    Dim asset As clsColumnAsset
+    Set asset = modCache.GetColumnAsset(ws.Range("A2:A3"))
+
+    ' 시트 보호로 AutoFilter 적용 에러를 강제 -> ApplyFilterResult 재던지기 ->
+    ' ExecuteFilterProcess 에러 채널(IsSuccess=False + ErrorNumber)로 전달돼야 한다
+    ws.Protect "test"
+    Dim dictRes As Object
+    Set dictRes = modProcessManager.ExecuteFilterProcess( _
+                      "alpha", asset, ws.ListObjects(1).Range, 1, False, False, False)
+    ws.Unprotect "test"
+
+    LogShim.AssertEq "errchan_success_false", False, dictRes("IsSuccess")
+    LogShim.AssertEq "errchan_has_errnumber", True, dictRes.exists("ErrorNumber")
+
+    Teardown ws
+End Sub
+
 ' @desc 무효화 후 재취득 자산의 정상 필터 경로가 green인지 검증함
 Public Sub Test_Gen_ReacquiredAsset_Green()
     Dim ws As Worksheet

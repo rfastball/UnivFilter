@@ -145,9 +145,13 @@ Finalize:
     Exit Sub
 
 ErrorHandler:
+    ' [Stage 8, D7] MsgBox 관심사 분리: 여기서 팝업하지 않고 재던지기.
+    ' 팝업 표면은 호출자(폼 btnApply / 퀵 경로 ExecuteQuickFilter)가 담당한다.
+    Dim lErrNum As Long, sErrDesc As String, sErrSource As String
+    lErrNum = Err.Number: sErrDesc = Err.Description: sErrSource = Err.Source
     Call OptimizedMode(False)
-    Log "ApplyFilterResult: [ERROR] " & Err.Description, lvlError
-    MsgBox "Filter Error: " & Err.Description
+    Log "ApplyFilterResult: [ERROR] " & sErrDesc, lvlError
+    Err.Raise lErrNum, sErrSource, sErrDesc
 End Sub
 
 ' ==============================================================================
