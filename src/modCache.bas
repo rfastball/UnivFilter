@@ -1,4 +1,6 @@
 Attribute VB_Name = "modCache"
+' @desc 열 자산 캐시와 시트 세대 관리 담당
+' @depends modColumnType, clsColumnAsset, clsSet, modLogger
 Option Explicit
 
 ' ========================================================

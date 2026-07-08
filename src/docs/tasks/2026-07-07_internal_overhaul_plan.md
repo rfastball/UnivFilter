@@ -1,6 +1,10 @@
 # UnivFilter 내부 전면 개편 계획 (2026-07-07 승인)
 
-> 상태: 설계 승인 완료, 실행 전. 새 세션에서 Stage 0부터 수행.
+> 상태: **실행 완료 (2026-07-08)** — Stage 0~9 전부 수행, 최종 vbaflow test 20/20 green.
+> 실행 중 플랜과 달라진 점: ① vh 하네스 대신 vbaflow(session/push/test) 게이트 사용
+> ② 워크북(xlsm)에 Core_* 패키지가 배포된 적 없음이 발견되어 Stage 0.5(워크북←src 정합화) 추가
+> ③ UnivDB Core 백엔드의 기존 컴파일 결함 발견(범위 밖, UnivDB CLAUDE.md에 문서화)
+> ④ 수동 스모크(버튼/컨텍스트메뉴/단축키 2종/HYBRID·DATE 잠금 폼/missing 클립보드)는 미수행 — 사람 확인 필요.
 > 플랜 원본: `C:\Users\rfast\.claude\plans\federated-soaring-sonnet.md` (이 문서가 정본 사본)
 
 ## 실행 전 체크 (2026-07-07 세션에서 확인된 운영 이슈)

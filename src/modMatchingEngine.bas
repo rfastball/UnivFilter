@@ -1,4 +1,6 @@
 Attribute VB_Name = "modMatchingEngine"
+' @desc 입력과 자산 매칭해 필터 기준 산출 담당
+' @depends modNormalize, modColumnType, modDisplayText, modTypePolicy, clsSet, clsColumnAsset, modLogger
 Option Explicit
 
 ' ==============================================================================

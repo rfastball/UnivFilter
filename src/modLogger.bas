@@ -1,4 +1,5 @@
 Attribute VB_Name = "modLogger"
+' @desc 앱 로그 기록과 파일 로테이션 담당
 Option Explicit
 
 ' === 설정 영역 ===

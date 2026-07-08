@@ -1,4 +1,5 @@
 Attribute VB_Name = "Utilities"
+' @desc 화면 갱신/계산 일시 최적화 토글 담당
 Option Explicit
 
 

@@ -1,4 +1,6 @@
 Attribute VB_Name = "modUnivFilter"
+' @desc 진입 UI(버튼/메뉴)와 폼 기동 담당
+' @depends frmFilter01, modLogger
 Option Explicit
 
 ' ==============================================================================
@@ -22,7 +24,6 @@ Private Const LOGPIXELSY As Long = 90
 ' ==============================================================================
 Public G_LastExcludeMode As Boolean     ' 마지막 제외 모드 상태
 Public G_LastStackMode As Boolean       ' 마지막 누적 모드 상태
-Public G_LastMatchMode As Boolean       ' 마지막 일치 모드 상태
 Public G_OpenForms As Collection        ' 폼 중복 실행 방지용 컬렉션
 
 ' ==============================================================================

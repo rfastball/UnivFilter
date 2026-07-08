@@ -7,6 +7,8 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
+' @desc 열 데이터/서식/타입/세대 자산 보관 담당
+' @depends clsSet
 Option Explicit
 
 ' ========================================================

@@ -1,4 +1,6 @@
 Attribute VB_Name = "modResultHandler"
+' @desc 필터 기준 시트 적용과 리포트 생성 담당
+' @depends modColumnType, modDisplayText, Utilities, modLogger
 Option Explicit
 
 ' ==============================================================================

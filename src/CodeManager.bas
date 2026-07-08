@@ -1,5 +1,6 @@
 Attribute VB_Name = "CodeManager"
 
+' @desc VBA 모듈 소스 내보내기/가져오기 담당
 Option Explicit
 
 ' ========================================================

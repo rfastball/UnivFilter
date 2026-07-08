@@ -1,4 +1,6 @@
 Attribute VB_Name = "modProcessManager"
+' @desc 필터 실행 전 과정 오케스트레이션 담당
+' @depends modCache, modMatchingEngine, modResultHandler, ClipboardAPI, AutoCloseMsgAPI, modUnivFilter, clsColumnAsset, modLogger
 Option Explicit
 
 ' ==============================================================================

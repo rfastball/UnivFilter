@@ -10,6 +10,8 @@ Attribute VB_Exposed = True
 ' ==========================================================
 ' [ThisWorkbook] UnivFilter 전역 감시 및 설정
 ' ==========================================================
+' @desc 워크북 이벤트와 앱 감시 바인딩 담당
+' @depends modCache, modUnivFilter
 Option Explicit
 
 ' 엑셀 어플리케이션 전체 이벤트를 받기 위한 변수

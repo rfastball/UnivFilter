@@ -1,4 +1,6 @@
 Attribute VB_Name = "modShortcuts"
+' @desc 전역 단축키 핸들러와 폼 주입 담당
+' @depends frmFilter01, modUnivFilter, modTypePolicy, ClipboardAPI, AutoCloseMsgAPI
 Option Explicit
 
 ' ==========================================================

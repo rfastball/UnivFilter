@@ -14,6 +14,8 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
+' @desc 필터 조건 입력 폼 UI와 위임 담당
+' @depends modCache, modProcessManager, modTypePolicy, FocusAPI, AutoCloseMsgAPI, clsColumnAsset, modUnivFilter
 Option Explicit
 
 ' ==============================================================================
