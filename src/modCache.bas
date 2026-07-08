@@ -9,6 +9,40 @@ Option Explicit
 ' 전역 저장소 (매크로 실행 종료 후에도 메모리에 생존)
 Private pColCache As Object
 
+' [세대 계약 D6] 시트별 세대 카운터: 무효화(편집/재계산)마다 증가
+' 자산은 취득 시점 세대를 스탬프하고, 파이프라인 진입점이 불일치 시 fail-fast(9998)
+Private pGenBySheet As Object
+
+' ========================================================
+' [세대 계약] 내부 도우미
+' ========================================================
+Private Function EnsureGenStore() As Object
+    If pGenBySheet Is Nothing Then
+        Set pGenBySheet = CreateObject("Scripting.Dictionary")
+        pGenBySheet.CompareMode = vbTextCompare
+    End If
+    Set EnsureGenStore = pGenBySheet
+End Function
+
+' 캐시 키('[통합문서]시트'!$A$2:$A$9 형태)에서 시트 식별 접두부만 추출
+Private Function PatternFromKey(ByVal sKey As String) As String
+    Dim p As Long
+    p = InStr(1, sKey, "!")
+    If p > 0 Then PatternFromKey = Left(sKey, p - 1) Else PatternFromKey = sKey
+End Function
+
+' @desc 시트 식별 접두부 받아 현재 세대 반환, 기록 없으면 0
+Public Function GetSheetGeneration(ByVal sPattern As String) As Long
+    Dim d As Object: Set d = EnsureGenStore()
+    If d.exists(sPattern) Then GetSheetGeneration = d(sPattern)
+End Function
+
+' @desc 컬럼 자산 받아 세대 불일치 여부 반환, 취득 후 시트 편집 발생 시 True
+Public Function IsAssetStale(ByVal colAsset As clsColumnAsset) As Boolean
+    If colAsset Is Nothing Then Exit Function
+    IsAssetStale = (colAsset.Generation <> GetSheetGeneration(PatternFromKey(colAsset.ID)))
+End Function
+
 ' ========================================================
 ' [Public] 자산 요청 (Get or Create)
 ' 설명: 캐시가 있으면 즉시 반환, 없으면 시트 읽어서 생성 후 반환
@@ -107,7 +141,8 @@ Public Function GetColumnAsset(ByVal rngCol As Range) As clsColumnAsset
     ' ---------------------------------------------------------
     ' [수정됨] 인자가 3개에서 4개로 늘어났습니다.
     ' ---------------------------------------------------------
-    newAsset.Init newSet, sFmt, sKey, sType
+    ' [세대 계약] 취득 시점의 시트 세대를 스탬프
+    newAsset.Init newSet, sFmt, sKey, sType, GetSheetGeneration(PatternFromKey(sKey))
     
     ' (5) 저장소 등록
     pColCache.Add sKey, newAsset
@@ -188,6 +223,14 @@ Public Sub InvalidateCache()
     'Else
         'Log "InvalidateCache: 삭제할 캐시 없음", lvlDebug
     End If
+
+    ' [세대 계약] 전체 무효화 = 알려진 모든 시트의 세대 증가
+    If Not pGenBySheet Is Nothing Then
+        Dim vPattern As Variant
+        For Each vPattern In pGenBySheet.Keys
+            pGenBySheet(vPattern) = pGenBySheet(vPattern) + 1
+        Next vPattern
+    End If
 End Sub
 
 ' ========================================================
@@ -200,11 +243,7 @@ Public Sub InvalidateCacheBySheet(ByVal Sh As Object)
     Dim colToDelete As New Collection
     Dim i As Long
     
-    ' 1. 저장소 확인
-    If pColCache Is Nothing Then Exit Sub
-    If pColCache.Count = 0 Then Exit Sub
-    
-    ' 2. [핵심 수정] 삭제 대상 패턴을 '정확하게' 생성하기
+    ' 1. [핵심 수정] 삭제 대상 패턴을 '정확하게' 생성하기
     ' 설명: 우리가 문자열을 조립하지 말고, 해당 시트의 A1 셀 주소를
     '       External 모드로 뽑은 뒤, 뒤쪽 셀 주소($A$1)만 떼어냅니다.
     '       이렇게 하면 띄어쓰기나 작은따옴표(') 처리가 저장할 때와 100% 일치합니다.
@@ -221,11 +260,20 @@ Public Sub InvalidateCacheBySheet(ByVal Sh As Object)
     If InStr(1, sTargetPattern, "!") > 0 Then
         sTargetPattern = Left(sTargetPattern, InStr(1, sTargetPattern, "!") - 1)
     End If
-    
+    If LenB(sTargetPattern) = 0 Then Exit Sub
+
+    ' 2. [세대 계약] 무효화 = 해당 시트 세대 증가 (캐시 보유 여부와 무관)
+    Dim dGen As Object: Set dGen = EnsureGenStore()
+    dGen(sTargetPattern) = GetSheetGeneration(sTargetPattern) + 1
+
+    ' 3. 저장소 확인 (이하 캐시 항목 정리)
+    If pColCache Is Nothing Then Exit Sub
+    If pColCache.Count = 0 Then Exit Sub
+
     ' 디버깅 로그: 내가 지금 뭘 찾으려는지 확인
     'Log "DEBUG: 삭제 패턴 검색 -> " & sTargetPattern, lvlDebug
-    
-    ' 3. 삭제할 키 수집
+
+    ' 4. 삭제할 키 수집
     For Each vKey In pColCache.Keys
         ' 이제 패턴이 정확하므로 안심하고 검색
         If InStr(1, vKey, sTargetPattern, vbTextCompare) > 0 Then
@@ -233,7 +281,7 @@ Public Sub InvalidateCacheBySheet(ByVal Sh As Object)
         End If
     Next vKey
     
-    ' 4. 삭제 실행 및 결과 로그
+    ' 5. 삭제 실행 및 결과 로그
     If colToDelete.Count > 0 Then
         For i = 1 To colToDelete.Count
             pColCache.Remove colToDelete(i)

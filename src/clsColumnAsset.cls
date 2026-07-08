@@ -18,6 +18,7 @@ Private mSetData As clsSet      ' 최적화된 집합 엔진
 Private mFormat As String       ' 엑셀 표시 형식 (예: "#,##0")
 Private mID As String           ' 캐시 키 (디버깅용)
 Private mDetectedType As String ' [New] 열의 판별된 타입 (NUMBER, STRING, HYBRID 등)
+Private mGeneration As Long     ' [세대 계약] 취득 시점의 시트 세대 스탬프
 
 
 ' ========================================================
@@ -31,11 +32,13 @@ Private mDetectedType As String ' [New] 열의 판별된 타입 (NUMBER, STRING,
 Public Sub Init(ByVal builtSet As clsSet, _
                 ByVal sFormat As String, _
                 ByVal sID As String, _
-                ByVal sType As String) ' <--- [New] 인자 추가
+                ByVal sType As String, _
+                Optional ByVal lGeneration As Long = 0) ' [세대 계약] 취득 세대
     Set mSetData = builtSet
     mFormat = sFormat
     mID = sID
     mDetectedType = sType ' [New] 타입 저장
+    mGeneration = lGeneration
 End Sub
 
 ' ========================================================
@@ -53,6 +56,11 @@ End Property
 
 Public Property Get ID() As String
     ID = mID
+End Property
+
+' [세대 계약] 취득 시점 시트 세대 (modCache.IsAssetStale이 판정에 사용)
+Public Property Get Generation() As Long
+    Generation = mGeneration
 End Property
 
 ' [추가] 외부에서 판별된 타입을 읽어갈 수 있도록 통로 개설

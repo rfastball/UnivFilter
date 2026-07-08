@@ -29,6 +29,15 @@ Public Function ExecuteFilterProcess( _
     On Error GoTo ErrorHandler
 
     ' --------------------------------------------------------------------------
+    ' 0. [세대 계약 D6] 낡은 자산 사용 차단 (fail-fast, UnivDB 계약 번호 9998 준용)
+    '    자산 취득 후 해당 시트에 편집/재계산 무효화가 발생했다면 재취득이 필요하다.
+    ' --------------------------------------------------------------------------
+    If modCache.IsAssetStale(colAsset) Then
+        Err.Raise 9998, "modProcessManager.ExecuteFilterProcess", _
+                  "컬럼 자산 세대 불일치 (취득 후 시트 편집 감지) - 자산을 재취득하세요"
+    End If
+
+    ' --------------------------------------------------------------------------
     ' 1. 매칭 엔진 가동 (CalculateCriteria)
     ' --------------------------------------------------------------------------
     Dim dictCriteria As Object
