@@ -35,8 +35,8 @@ Public Sub ApplyFilterResult( _
     
     ' 2. 기준값 및 서식 정보 추출
     arrCriteria = dictResult("Criteria")
-    sType = modFilterUtils.GetColumnIdentity(rngTable.Columns(lColIndex))
-    sFmt = modFilterUtils.GetRepresentativeFormat(rngTable.Columns(lColIndex))
+    sType = modColumnType.GetColumnIdentity(rngTable.Columns(lColIndex))
+    sFmt = modColumnType.GetRepresentativeFormat(rngTable.Columns(lColIndex))
     
     ' [LOG] 타겟 컬럼 정보 확인
     Log "ApplyFilterResult: 컬럼 분석 (Type: " & sType & ", Fmt: " & sFmt & ")", lvlDebug
@@ -64,19 +64,19 @@ Public Sub ApplyFilterResult( _
             
             ' [0순위] 날짜 타입은 다른 거 묻지도 따지지도 말고 가로채기!
             If sType = "DATE" Then
-                arrCriteria(i) = modFilterUtils.GetSafeFormattedText(arrCriteria(i), sFmt)
+                arrCriteria(i) = modDisplayText.GetSafeFormattedText(arrCriteria(i), sFmt)
             ' [1순위] 날짜가 아니라면, 회계/통화 서식인가? (If가 아니라 ElseIf로 연결!)
             ElseIf isAcc Then
-                arrCriteria(i) = modFilterUtils.GetAccountingFilterString(arrCriteria(i), sFmt)
+                arrCriteria(i) = modDisplayText.GetAccountingFilterString(arrCriteria(i), sFmt)
             
             ' [2순위] 그것도 아니면, 백분율 서식인가?
             ElseIf isPct Then
-                arrCriteria(i) = modFilterUtils.GetSafeFormattedText(arrCriteria(i), sFmt)
+                arrCriteria(i) = modDisplayText.GetSafeFormattedText(arrCriteria(i), sFmt)
             
             ' [3순위] 나머지는 일반 서식 처리
             Else
                 If sFmt <> "" And sFmt <> "General" And sFmt <> "@" Then
-                    arrCriteria(i) = modFilterUtils.GetSafeFormattedText(arrCriteria(i), sFmt)
+                    arrCriteria(i) = modDisplayText.GetSafeFormattedText(arrCriteria(i), sFmt)
                 Else
                     arrCriteria(i) = CStr(arrCriteria(i))
                 End If

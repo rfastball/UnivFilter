@@ -23,7 +23,7 @@ Public Function CalculateCriteria( _
     
     ' 1. [타입 분석] 데이터 자산(Asset)으로부터 열의 정체성 확인
     sColIdentity = colAsset.ColumnType
-    eType = MapIdentityToEnum(sColIdentity)
+    eType = modColumnType.IdentityToEnum(sColIdentity)
     
     Log "CalculateCriteria: 열 정체성 확인 (ID: " & sColIdentity & " -> Enum: " & eType & ")", lvlDebug
     
@@ -167,7 +167,7 @@ NextItem:
         
         Set dictCriteria = CreateObject("Scripting.Dictionary")
         Set dictVisFail = CreateObject("Scripting.Dictionary")
-        sFmt = modFilterUtils.GetCleanFormat(colAsset.fmt)
+        sFmt = modDisplayText.GetCleanFormat(colAsset.fmt)
         
         For Each vKey In setCommon.KeysArray
             ' 딕셔너리에 있는 원본값(vRaw)을 가져옴 (성공 바스켓은 Value가 원본임)
@@ -178,7 +178,7 @@ NextItem:
                 ' eType = fdFloat 체크 로직 삭제됨.
                 ' ROUNDED, PERCENT_ROUNDED를 포함한 모든 Number Strategy는
                 ' 화면에 보이는 값(SafeFormattedText)을 기준으로 역산(Reconst)합니다.
-                sReconst = modFilterUtils.GetSafeFormattedText(vKey, sFmt)
+                sReconst = modDisplayText.GetSafeFormattedText(vKey, sFmt)
                 
                 dictCriteria(sReconst) = Empty
                 
@@ -387,7 +387,7 @@ Private Function GetPartialMatch_Smart( _
         
         ' 표시 형식이 있다면 포맷팅된 문자열(Formatted) 생성
         If sFmt <> "" And sFmt <> "General" Then
-            sDataFmt = GetSafeFormattedText(vRawData(i), sFmt)
+            sDataFmt = modDisplayText.GetSafeFormattedText(vRawData(i), sFmt)
         Else
             sDataFmt = sDataRaw
         End If
@@ -458,36 +458,11 @@ Private Function FormatSetToCriteria(targetSet As clsSet, sFmt As String) As Var
     ' 엑셀 필터 기준(Criteria)에 맞게 모든 데이터를 문자열화
     For i = LBound(vArr) To UBound(vArr)
         If sFmt <> "" Then
-            vRes(i) = GetSafeFormattedText(vArr(i), sFmt)
+            vRes(i) = modDisplayText.GetSafeFormattedText(vArr(i), sFmt)
         Else
             vRes(i) = CStr(vArr(i))
         End If
     Next i
     
     FormatSetToCriteria = vRes
-End Function
-
-' [Helper 4] 식별자 문자열(Identity)을 내부 Enum 타입으로 매핑 (업데이트됨)
-' ------------------------------------------------------------------------------
-Private Function MapIdentityToEnum(sID As String) As FilterDataType
-    Select Case UCase(sID) ' 안전을 위해 대문자 통일
-        ' [기본 숫자 계열]
-        Case "NUMBER":           MapIdentityToEnum = fdNumber
-        Case "PERCENT":          MapIdentityToEnum = fdPercent
-        
-        ' [주의: 숨겨진 값 계열 - New]
-        Case "ROUNDED":          MapIdentityToEnum = fdRounded
-        Case "PERCENT_ROUNDED":  MapIdentityToEnum = fdPercentRounded
-        
-        ' [기타 타입]
-        Case "DATE":             MapIdentityToEnum = fdDate
-        Case "STRING":           MapIdentityToEnum = fdString
-        
-        ' [특수 상태]
-        Case "HYBRID":           MapIdentityToEnum = fdHybrid
-        Case "ERROR":            MapIdentityToEnum = fdError
-        
-        ' [기본값]
-        Case Else:               MapIdentityToEnum = fdAuto
-    End Select
 End Function

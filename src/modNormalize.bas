@@ -1,6 +1,6 @@
 Attribute VB_Name = "modNormalize"
 ' @desc 입력 값을 타입별 정규화 값과 배열로 변환 담당
-' @depends modIndexKey, modLogger, modFilterUtils
+' @depends modIndexKey, modLogger, modColumnType
 Option Explicit
 
 ' ==============================================================================
@@ -21,7 +21,7 @@ Public Function GetUniqueCleanData(ByVal vInput As Variant, ByVal eType As Filte
     Dim bIsValid As Boolean
 
     ' [LOG] 정제 시작
-    Log "GetUniqueCleanData: 데이터 정제 시작 (TargetType: " & modFilterUtils.GetTypeName(eType) & ")", lvlDebug
+    Log "GetUniqueCleanData: 데이터 정제 시작 (TargetType: " & modColumnType.GetTypeName(eType) & ")", lvlDebug
 
     Set dict = CreateObject("Scripting.Dictionary")
     vArr = ConvertToFlatArray(vInput)

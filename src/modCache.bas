@@ -79,10 +79,10 @@ Public Function GetColumnAsset(ByVal rngCol As Range) As clsColumnAsset
     Log "GetColumnAsset: [CACHE MISS] 신규 자산 생성 시작", lvlInfo
     
     ' (0) [Critical] 데이터 로딩 전, 신분(Type)부터 확인!
-    ' modFilterUtils에 있는 판별 함수를 호출합니다.
+    ' modColumnType에 있는 판별 함수를 호출합니다.
     ' 여기서 'HYBRID'나 'ERROR'가 나와도 일단 자산에는 기록해두고,
     ' 판단(Stop or Go)은 메인 로직에게 맡깁니다.
-    sType = modFilterUtils.GetColumnIdentity(rngCol)
+    sType = modColumnType.GetColumnIdentity(rngCol)
     Log "GetColumnAsset: 컬럼 Identity 판별 -> " & sType, lvlDebug
     
     ' (1) 데이터 읽기

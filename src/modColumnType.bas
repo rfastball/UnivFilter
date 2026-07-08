@@ -1,5 +1,12 @@
-Attribute VB_Name = "modFilterUtils"
+Attribute VB_Name = "modColumnType"
+' @desc 열 서식/값 스캔해 데이터 타입 판별 담당
+' @depends modLogger
 Option Explicit
+
+' ==============================================================================
+' [L2a 서식 인지 타입 판별] modFilterUtils에서 이동 (Stage 6)
+' 검증된 로직의 이동이므로 알고리즘 수정 금지
+' ==============================================================================
 
 ' ==============================================================================
 ' [섹션 0] 데이터 타입 열거형 정의 (수정됨)
@@ -32,31 +39,54 @@ Public Function GetTypeName(eType As FilterDataType) As String
         Case fdDate:            GetTypeName = "날짜"
         Case fdNumber:          GetTypeName = "숫자"          ' 통합됨
         Case fdPercent:         GetTypeName = "백분율"        ' 통합됨
-        
+
         Case fdRounded:         GetTypeName = "숫자(숨김)"    ' [New]
         Case fdPercentRounded:  GetTypeName = "백분율(숨김)"  ' [New]
-        
+
         Case fdHybrid:          GetTypeName = "복합(혼용)"
         Case fdError:           GetTypeName = "오류"
         Case Else:              GetTypeName = "텍스트"
     End Select
 End Function
 
-' ==============================================================================
-' [섹션 4] 메타데이터 분석 및 아이덴티티 감지
-' ==============================================================================
+' [도우미] 식별자 문자열(Identity)을 내부 Enum 타입으로 매핑 (구 modMatchingEngine.MapIdentityToEnum)
+' @desc 정체성 문자열 받아 FilterDataType 반환, 미확인 시 fdAuto
+Public Function IdentityToEnum(sID As String) As FilterDataType
+    Select Case UCase(sID) ' 안전을 위해 대문자 통일
+        ' [기본 숫자 계열]
+        Case "NUMBER":           IdentityToEnum = fdNumber
+        Case "PERCENT":          IdentityToEnum = fdPercent
+
+        ' [주의: 숨겨진 값 계열 - New]
+        Case "ROUNDED":          IdentityToEnum = fdRounded
+        Case "PERCENT_ROUNDED":  IdentityToEnum = fdPercentRounded
+
+        ' [기타 타입]
+        Case "DATE":             IdentityToEnum = fdDate
+        Case "STRING":           IdentityToEnum = fdString
+
+        ' [특수 상태]
+        Case "HYBRID":           IdentityToEnum = fdHybrid
+        Case "ERROR":            IdentityToEnum = fdError
+
+        ' [기본값]
+        Case Else:               IdentityToEnum = fdAuto
+    End Select
+End Function
+
 ' ------------------------------------------------------------------------------
 ' 함수명: GetRepresentativeFormat
 ' 목적: 범위 내에서 데이터가 존재하는 첫 번째 셀을 찾아 표시 형식을 추출
 ' 포맷이 단일하다고 확인된 열에대해 구체적 포맷값을 얻을 때
 ' ------------------------------------------------------------------------------
+' @desc 범위 받아 첫 유효 셀의 표시 형식 반환, 빈 범위 시 General
 Public Function GetRepresentativeFormat(ByVal rngData As Range) As String
     Dim rngSample As Range
     If rngData Is Nothing Then GetRepresentativeFormat = "General": Exit Function
-    
+
     ' 빈 셀을 건너뛰고 실제 값이 있는 첫 번째 셀 탐색
     Set rngSample = rngData.Find("*", LookIn:=xlValues, LookAt:=xlPart, SearchDirection:=xlNext)
-    
+
     If rngSample Is Nothing Then
         GetRepresentativeFormat = rngData.Cells(1, 1).NumberFormat
     Else
@@ -70,6 +100,7 @@ End Function
 ' 함수명: GetColumnIdentity
 ' 목적: 열 전체 데이터를 스캔하여 데이터 타입(FLOAT, NUMBER, PERCENT 등)을 최종 판정
 ' ------------------------------------------------------------------------------
+' @desc 열 범위 받아 정체성 문자열 반환, 데이터 없으면 STRING
 Public Function GetColumnIdentity(targetCol As Range) As String
     Dim ws As Worksheet: Set ws = targetCol.Worksheet
     Dim headerRow As Long, lastRow As Long
@@ -77,13 +108,13 @@ Public Function GetColumnIdentity(targetCol As Range) As String
     Dim sampleCell As Range
     Dim fmt As String
     Dim colIdx As Long: colIdx = targetCol.Column
-    
+
     ' [설정] 부동소수점 오차 허용 범위
     Const EPSILON As Double = 0.000000000001
-    
+
     ' [LOG] 컬럼 분석 시작
     ' Log "GetColumnIdentity: 분석 시작 (Col: " & colIdx & ")", lvlDebug
-    
+
     ' 1단계: 헤더 및 데이터 범위 확정
     ' ---------------------------------------------------------
     headerRow = 0
@@ -103,21 +134,21 @@ Public Function GetColumnIdentity(targetCol As Range) As String
     End If
 
     lastRow = ws.Cells(ws.Rows.Count, colIdx).End(xlUp).Row
-    
+
     If headerRow = 0 Or lastRow <= headerRow Then
         GetColumnIdentity = "STRING"
         Exit Function
     End If
 
     Set dataRange = ws.Range(ws.Cells(headerRow + 1, colIdx), ws.Cells(lastRow, colIdx))
-    
+
 ' [2단계] 서식(Format) 통일성 검증 및 사전 분석
     ' ---------------------------------------------------------
     Dim vFmtCheck As Variant
     Dim isPercentCol As Boolean: isPercentCol = False ' [최적화 키]
-    
+
     vFmtCheck = dataRange.NumberFormat
-    
+
     If IsNull(vFmtCheck) Then
         GetColumnIdentity = "HYBRID"
         Exit Function
@@ -125,16 +156,16 @@ Public Function GetColumnIdentity(targetCol As Range) As String
         ' 서식이 통일되어 있다면, 문자열로 변환하여 미리 분석
         fmt = CStr(vFmtCheck)
         If fmt = "@" Then GetColumnIdentity = "STRING": Exit Function
-        
+
         ' [최적화] 루프 돌기 전에 미리 "이 컬럼은 백분율 후보인가?" 판단
         If InStr(fmt, "%") > 0 Then isPercentCol = True
     End If
-    
+
     ' [3단계] 값(Value) 기반 정밀 분석 (조건부 최적화)
     ' ---------------------------------------------------------
     Dim hasDecimal As Boolean: hasDecimal = False
     Dim hasPercentFloat As Boolean: hasPercentFloat = False
-    
+
     If dataRange.Cells.CountLarge > 0 Then
         ' [안전장치] 단일 셀이든 범위든 무조건 2차원 배열로 변환
         If dataRange.Cells.CountLarge = 1 Then
@@ -143,22 +174,22 @@ Public Function GetColumnIdentity(targetCol As Range) As String
         Else
             dataArray = dataRange.Value
         End If
-        
+
         Dim i As Long
         Dim hasText As Boolean, hasNum As Boolean, hasErr As Boolean
         Dim currentVal As Variant
         Dim dVal As Double, delta As Double, deltaPct As Double
-        
+
         For i = 1 To UBound(dataArray, 1)
             currentVal = dataArray(i, 1)
-            
+
             If IsError(currentVal) Then
                 hasErr = True: Exit For
             ElseIf Not IsEmpty(currentVal) Then
                 Select Case VarType(currentVal)
                     Case vbDouble, vbSingle, vbCurrency
                         hasNum = True
-                        
+
                         ' 1. 일반 소수점(FLOAT) 체크 (항상 수행)
                         If Not hasDecimal Then
                             dVal = CDbl(currentVal)
@@ -167,7 +198,7 @@ Public Function GetColumnIdentity(targetCol As Range) As String
                                 hasDecimal = True
                             End If
                         End If
-                        
+
                         ' 2. 백분율 소수점(PERCENT_FLOAT) 체크
                         ' [최적화] 서식이 백분율(%)인 경우에만 수행! (일반 숫자에서는 Skip)
                         If isPercentCol And Not hasPercentFloat Then
@@ -179,26 +210,26 @@ Public Function GetColumnIdentity(targetCol As Range) As String
                                 hasPercentFloat = True
                             End If
                         End If
-                        
+
                         ' 둘 다 찾았거나(백분율의 경우),
                         ' 백분율이 아닌데 소수점은 찾았다면(일반 숫자의 경우) -> 더 이상 연산 불필요?
                         ' -> 일반 숫자는 hasDecimal만 True면 더 연산할 필요 없음
                         ' -> 백분율은 hasPercentFloat까지 True여야 함
-                        
+
                     Case vbInteger, vbLong, vbByte
                         hasNum = True
-                        
+
                     Case vbDate
                         hasNum = True
-                        
+
                     Case vbString
                         If Len(currentVal) > 0 Then hasText = True
                 End Select
             End If
-            
+
             If hasNum And hasText Then Exit For
         Next i
-        
+
         If hasErr Then GetColumnIdentity = "ERROR": Exit Function
         If hasText And hasNum Then GetColumnIdentity = "HYBRID": Exit Function
     End If
@@ -207,12 +238,12 @@ Public Function GetColumnIdentity(targetCol As Range) As String
     ' --------------------------------------------------------------------------
     ' 표본 셀 확보
     Set sampleCell = dataRange.Find("*", LookIn:=xlValues, SearchDirection:=xlNext)
-    
+
     If sampleCell Is Nothing Then
         GetColumnIdentity = "STRING"
         Exit Function
     End If
-    
+
     ' 서식 내 특수문자([]) 제거
     Dim cleanFmt As String: cleanFmt = fmt
     Do While InStr(cleanFmt, "[") > 0 And InStr(cleanFmt, "]") > InStr(cleanFmt, "[")
@@ -226,11 +257,11 @@ Public Function GetColumnIdentity(targetCol As Range) As String
 
     ' 숫자형 데이터 처리
     If IsNumeric(sampleCell.Value2) And VarType(sampleCell.Value2) <> vbString Then
-        
+
         ' 1. 날짜 서식
         If IsDateFmt(cleanFmt) Then
             GetColumnIdentity = "DATE"
-            
+
         ' 2. 백분율 처리 (PERCENT_FLOAT 삭제 -> PERCENT 통합, ROUNDED만 분리)
         ElseIf isPercentCol Then
             If hasPercentFloat Then
@@ -244,7 +275,7 @@ Public Function GetColumnIdentity(targetCol As Range) As String
             Else
                 GetColumnIdentity = "PERCENT"             ' 정수형 백분율
             End If
-            
+
         ' 3. 일반 숫자 처리 (FLOAT 삭제 -> NUMBER 통합, ROUNDED만 분리)
         Else
             If hasDecimal Then
@@ -259,11 +290,11 @@ Public Function GetColumnIdentity(targetCol As Range) As String
                 GetColumnIdentity = "NUMBER"              ' 정수형 숫자
             End If
         End If
-        
+
     Else
         GetColumnIdentity = "STRING"
     End If
-    
+
     Log "GetColumnIdentity: 최종 판정 -> " & GetColumnIdentity, lvlDebug
 
 End Function
@@ -274,9 +305,9 @@ End Function
 ' ------------------------------------------------------------------------------
 Private Function IsDateFmt(ByVal sFmt As String) As Boolean
     If sFmt = "General" Or sFmt = "" Or sFmt = "@" Then IsDateFmt = False: Exit Function
-    
+
     Dim sClean As String, i As Long, bInQuote As Boolean, c As String
-    
+
     ' 따옴표로 감싸진 리터럴 텍스트 제거 (서식 코드 오인식 방지)
     sClean = ""
     For i = 1 To Len(sFmt)
@@ -284,7 +315,7 @@ Private Function IsDateFmt(ByVal sFmt As String) As Boolean
         c = Mid(sFmt, i, 1)
         If c = """" Then bInQuote = Not bInQuote Else If Not bInQuote Then sClean = sClean & c
     Next i
-    
+
     ' 표준 날짜/시간 기호(y, m, d, h, s) 포함 여부 체크
     sClean = LCase(sClean)
     If InStr(1, sClean, "y") > 0 Or InStr(1, sClean, "d") > 0 Or _
@@ -294,206 +325,4 @@ Private Function IsDateFmt(ByVal sFmt As String) As Boolean
     Else
         IsDateFmt = False
     End If
-End Function
-
-' ==============================================================================
-' 함수명: GetSafeFormattedText
-' 설명: 값(vVal)에 서식(sFmt)을 적용하되, 에러 발생 시 단계적으로 덜 정교한 메서드를 시도함
-' 우선순위:
-'   1. WorksheetFunction.Text (엑셀 고유 서식 완벽 지원)
-'   2. VBA Format 함수 (표준 서식 지원)
-'   3. 기본 날짜 포맷 (yyyy-mm-dd)
-'   4. 단순 문자열 변환 (CStr)
-' ==============================================================================
-Public Function GetSafeFormattedText(ByVal vVal As Variant, ByVal sFmt As String) As String
-    Dim sResult As String
-    Dim bSuccess As Boolean
-    
-    bSuccess = False
-    sResult = ""
-    
-    ' [예외 처리] 값이 에러(#N/A 등)이거나 비어있는 경우
-    If IsError(vVal) Then
-        GetSafeFormattedText = CStr(vVal)
-        Exit Function
-    End If
-    If IsEmpty(vVal) Then
-        GetSafeFormattedText = ""
-        Exit Function
-    End If
-
-    ' [1단계] 엑셀 워크시트 함수 사용 (가장 정교함)
-    If sFmt <> "" Then
-        On Error Resume Next
-        sResult = Application.WorksheetFunction.text(vVal, sFmt)
-        
-        If Err.Number = 0 Then
-            bSuccess = True
-        Else
-            Err.Clear ' 에러 초기화
-        End If
-        On Error GoTo 0
-    End If
-    
-    ' [2단계] VBA Format 함수 사용 (1단계 실패 시)
-    If Not bSuccess And sFmt <> "" Then
-        On Error Resume Next
-        sResult = Format(vVal, sFmt)
-        
-        If Err.Number = 0 Then
-            bSuccess = True
-        Else
-            ' [LOG] 서식 적용 실패 (드문 경우라 로그 남김)
-            Log "GetSafeFormattedText: Format 실패 (Val: " & vVal & ", Fmt: " & sFmt & ")", lvlDebug
-            Err.Clear
-        End If
-        On Error GoTo 0
-    End If
-    
-    ' [3단계 & 4단계] 기본값 처리 (모두 실패하거나 서식이 없는 경우)
-    If Not bSuccess Then
-        If IsDate(vVal) Then
-            sResult = Format(vVal, "yyyy-mm-dd") ' ISO 표준 날짜
-        Else
-            sResult = CStr(vVal) ' 단순 문자열
-        End If
-    End If
-    
-    GetSafeFormattedText = sResult
-End Function
-
-
-' ==========================================================
-' [ GetCleanFormat ]
-' 목적: 엑셀 AutoFilter가 '인식 가능한' 표준 문자열 생성을 위한 서식 정제
-' ----------------------------------------------------------
-' 상세 사유 (Excel Filter Logic 대응):
-'   1. 엑셀 필터는 '값'이 아닌 '화면에 표시된 텍스트'와 매칭하여 작동함
-'   2. 회계 서식의 특수 기호(*, _)는 실제 텍스트에 불규칙한 공백을 만듦.
-'   3. 그런데 엑셀 필터는 또 이런 불규칙한 공백은 포함되면 매칭이 안됨(...)
-'   4. 따라서 회계서식이 걸린 필터에 주는 값은 원본서식이 아니라 원본서식에서 불규칙한 공백이 제거된 서식이어야 함
-'   5. 본 함수는 이런 '정렬용 노이즈'를 제거하여 유연한 매칭(VisFail 보정)이
-'      가능한 깨끗한 서식(예: #,##0.00)만 추출함.
-'   6. 이렇게 변환된 값은 GetAccountingFilterString로 넘겨서 필터에 먹일 string으로 변환함
-' ==========================================================
-Public Function GetCleanFormat(ByVal rawFmt As String) As String
-    Dim s As String: s = Trim(rawFmt)
-    
-    ' [LOG] 서식 클리닝 진입 (디버그)
-    ' Log "GetCleanFormat: " & rawFmt, lvlDebug
-    
-    ' [1] 안전장치: 일반/텍스트 서식은 건드리지 않음
-    If s = "General" Or s = "@" Or s = "" Then GetCleanFormat = "": Exit Function
-    
-    ' [2] 양수/음수 서식 분리: 세미콜론이 있으면 앞부분(양수)만 사용
-    If InStr(s, ";") > 0 Then s = Split(s, ";")(0)
-    
-    ' [3] 회계/특수 서식 기호(*, _) 처리 로직 (핵심 개선 구간)
-    If InStr(s, "*") > 0 Or InStr(s, "_") > 0 Then
-        
-        Dim sSymbol As String: sSymbol = ""
-        Dim sDec As String: sDec = ""
-        
-        ' A. 통화 기호 살리기
-        ' -------------------------------------------------------
-        If InStr(s, "\") > 0 Or InStr(s, "\") > 0 Then
-            sSymbol = "\"
-        ElseIf InStr(s, "$") > 0 Then
-            sSymbol = "$"
-        ElseIf InStr(s, "€") > 0 Then
-            sSymbol = "€"
-        ElseIf InStr(s, "￡") > 0 Then
-            sSymbol = "￡"
-        End If
-        ' -------------------------------------------------------
-        
-        ' B. 소수점 자릿수 확인 (기존 로직 포괄)
-        If InStr(s, ".00") > 0 Then
-            sDec = ".00"
-        ElseIf InStr(s, ".0") > 0 Then
-            sDec = ".0"
-        End If
-        
-        ' C. 서식 재조립
-        ' 기호가 없으면 sSymbol은 빈 값이므로, 기존 로직(순수 숫자)과 똑같이 동작함
-        GetCleanFormat = sSymbol & "#,##0" & sDec
-        
-        Log "GetCleanFormat: 회계 서식 정제 -> " & GetCleanFormat, lvlDebug
-        Exit Function
-    End If
-    
-    ' [4] 그 외 서식(단위 등)은 최대한 원본 유지
-    GetCleanFormat = s
-End Function
-
-' ==========================================================
-' [ GetAccountingFilterString ]
-' 목적: 회계 서식 특유의 '시각적 변환'을 엑셀 필터가 인식하는 '패턴'으로 정규화
-' ----------------------------------------------------------
-' 핵심 기능:
-'   1. Zero Value 보정: 숫자 0을 회계용 대시(예: \-) 문자로 변환
-'   2. 공백 압축: 기호(Currency)와 숫자 사이의 가변 공백을 제거하여 밀착시킴
-'   3. 음수 패턴 매칭: 서식 설정에 따라 괄호형() 또는 마이너스형(-) 패턴 생성
-' ==========================================================
-Public Function GetAccountingFilterString(ByVal vValue As Variant, ByVal sFormat As String) As String
-    Dim sSymbol As String: sSymbol = ""
-    Dim sCleanNum As String: sCleanNum = modNormalize.ExtractNumberAggressive(CStr(vValue))
-    Dim dblVal As Double
-    
-    If Not IsNumeric(sCleanNum) Then
-        GetAccountingFilterString = CStr(vValue): Exit Function
-    End If
-    dblVal = CDbl(sCleanNum)
-    
-    ' 1. 기호 판별 (로캘 원화 기호인 역슬래시 사용)
-    If InStr(sFormat, "$") > 0 Or InStr(sFormat, "\") > 0 Or _
-       InStr(sFormat, ChrW(8361)) > 0 Or InStr(sFormat, "[$") > 0 Then
-        sSymbol = Chr(92)
-    End If
-    
-    ' 2. [핵심] 제로(0) 처리: 사용자님이 말씀하신 \- 형태
-    If dblVal = 0 Then
-        ' 회계 서식이라면 \- , 아니면 그냥 0
-        If InStr(sFormat, "*") > 0 Then
-            GetAccountingFilterString = sSymbol & "-"
-        Else
-            GetAccountingFilterString = "0"
-        End If
-        Log "GetAccountingFilterString: Zero Value -> " & GetAccountingFilterString, lvlDebug
-        Exit Function
-    End If
-    
-    ' 3. 음수/양수 조립 (와일드카드 삭제, 기호 밀착)
-    If dblVal < 0 Then
-        If InStr(sFormat, "(") > 0 Then
-            ' 괄호형: (\1,234)
-            GetAccountingFilterString = "(" & sSymbol & GetSafeFormattedText(Abs(dblVal), "#,##0") & ")"
-        Else
-            ' 마이너스형: -\1,234 (사용자님 스크린샷의 -\1,234 선택 반영)
-            GetAccountingFilterString = "-" & sSymbol & GetSafeFormattedText(Abs(dblVal), "#,##0")
-        End If
-    Else
-        ' 양수: \50,000
-        GetAccountingFilterString = sSymbol & GetSafeFormattedText(dblVal, "#,##0")
-    End If
-    
-    ' [LOG] 최종 변환 결과 확인 (필터링 실패 시 원인 파악용)
-    Log "GetAccountingFilterString: " & vValue & " -> " & GetAccountingFilterString, lvlDebug
-End Function
-
-Public Function GetPercentageFilterString(ByVal vValue As Variant, ByVal sFormat As String) As String
-    Dim sCleanNum As String: sCleanNum = modNormalize.ExtractNumberAggressive(CStr(vValue))
-    
-    ' 1. 숫자가 아니면 원본 반환 (예: 사용자가 "%"만 입력해 검색할 경우)
-    If Not IsNumeric(sCleanNum) Then
-        GetPercentageFilterString = CStr(vValue)
-        Exit Function
-    End If
-    
-    ' 2. 숫자인 경우, 해당 열의 서식을 적용하여 문자열 생성
-    ' 예: 0.5 -> "50%", 0.123 -> "12.3%" (서식에 따라 다름)
-    GetPercentageFilterString = GetSafeFormattedText(CDbl(sCleanNum), sFormat)
-    
-    ' [LOG] 퍼센트 변환 확인
-    Log "GetPercentageFilterString: " & vValue & " -> " & GetPercentageFilterString, lvlDebug
 End Function
