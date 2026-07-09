@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 개발 루프는 `vbaflow` (루트 `../CLAUDE.md`의 관리 블록 참조): 편집 → `vbaflow push` → `vbaflow test` → green이면 commit.
 
 - 테스트는 `Public Sub Test_*()` (인자 없음), 단언은 `LogShim.AssertEq`.
-- 시트를 만드는 테스트는 각자 스크래치 시트를 만들고 **반드시 삭제**한다 (떠돌이 문서 모듈이 `--prune`을 막는다). 스크래치 시트 재생성 시 `modCache.InvalidateCacheBySheet`를 수동 호출할 것 — 헤드리스에선 AppEvents가 미배선이라 실환경의 SheetChange 무효화가 오지 않는다.
+- 시트를 만드는 테스트는 각자 스크래치 시트를 만들고 **반드시 삭제**한다 (떠돌이 문서 모듈이 `--prune`을 막는다). 캐시 무효화는 수동 호출이 불필요하다 — 신선도를 지문 관측이 담당하므로 값·서식을 바꾸면 다음 `GetColumnAsset`이 자동 감지한다 (시트 재생성 간 결정성만 필요하면 `modCache.ClearCache`).
 - 모듈 삭제(prune) 직후 스위트가 이유 없이 크래시하면 stale p-code 의심: 재push + `vbaflow session stop/start`.
 - `CodeManager.bas`는 수동 라운드트립 보조 도구로 남아 있다.
 
@@ -63,7 +63,7 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
                       │           │           │          │
                       ▼           ▼           ▼          ▼
                  modCache    modInputParse  modMatch   modApply -> modReport
-              (세대검증+재빌드)  (토큰/값해석)   (2레인)    (xlFilterValues)
+              (지문검증+재빌드)  (토큰/값해석)   (2레인)    (xlFilterValues)
 ```
 
 - 퀵 모드(Ctrl+Shift+Q): 항상 즉시 실행(완전일치/포함/초기화 고정). **매칭 0건이면 아무것도 적용하지 않고 알림만** (필터/폼/클립보드 원상태).
@@ -77,11 +77,12 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 | `modFilterRun` | 파이프라인 오케스트레이션 (폼/퀵 공용 진입점, 자가검증 포함) |
 | `modInputParse` | 토큰화(개행/탭, 콤마는 구분자 아님) + 값 후보 해석(통화/괄호음수/%/날짜) |
 | `modMatch` | 2레인 매칭: 표시 exact/부분(InStr 스캔), 값 브리지, 누락/보정 분류 |
-| `modColumnScan` | 열 1회 스캔: 표시 키 규칙 적용, 값지도/행수지도/빈칸 집계 |
+| `modColumnScan` | 열 1회 스캔: 표시 키 규칙 적용, 값지도/행수지도/빈칸 집계. `ComputeSignature`(값싼 prefix)/`BuildAssetFromSig`(suffix) 분할 |
 | `modApply` | xlFilterValues 단일 Tier 적용, 255자 특례, 전체숨김/필드해제, 가시행 계수 |
 | `modReport` | 상태/누락/보정/경고 메시지 구성 + 누락 클립보드 복사 |
-| `modCache` | 자산 캐시 + 시트 세대. stale이면 **투명 재스캔** (구 fail-fast 9998 대체) |
-| `clsColAsset` | Displays(clsSet) + ValueMap + RowCountByKey + BlankCount + 세대 스탬프 |
+| `modCache` | 자산 캐시 + 지문 신선도 관측. 불일치면 **투명 재스캔** (이벤트/세대 없음) |
+| `clsColAsset` | Displays(clsSet) + ValueMap + RowCountByKey + BlankCount + 지문 스탬프 |
+| `clsColSig` | 열 지문: RowCount + ContentVec(Value2 배열) + 서식rep. `Matches` 저장-비교(충돌0) |
 | `frmFilter01` | UI 전용: Range 주입받아 RunFilter 위임, 결과 팝업 |
 | `modUnivFilter` | 버튼/메뉴/폼 위치(DPI), 전역 상태 G_LastExcludeMode/G_LastStackMode/G_OpenForms |
 | `modShortcuts` | Q/U 핸들러 + SetupFormData (본문 = ListObject DataBodyRange 또는 AutoFilter.Range 경계) |
@@ -89,12 +90,12 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 인프라(불변): `clsSet`+`modIndexKey`(UnivDB 벤더링 - vendor.manifest, 직접 수정 금지),
 `LogShim`(vbaflow 관리), `modLogger`(기본 OFF), Win32 shim 4종, `Utilities.OptimizedMode`.
 
-### Column data lifecycle + 세대(Generation) 계약
+### Column data lifecycle + 지문(Signature) 계약
 
 `modCache.GetColumnAsset(rng)`이 열 읽기의 단일 관문. 캐시 키는 `rng.Address(External:=True)`.
 
-- 무효화는 이벤트 구동: `현재_통합_문서.AppEvents_SheetChange/SheetCalculate` → `InvalidateCacheBySheet`(세대 증가 + 항목 제거). 수동 무효화하지 말 것.
-- **세대 계약(재설계판)**: 자산은 취득 시점 세대를 스탬프. `GetColumnAsset`이 반환 전에 현재 세대와 대조해 불일치면 **조용히 재스캔**한다. 파이프라인이 실행 시점마다 캐시를 통과하므로 "낡은 스냅샷으로 필터"는 구조적으로 불가능 (`Test_Generation2`가 고정). 구 계약의 Err 9998 팝업은 폐지됨.
+- **지문 계약**: 신선도는 예측이 아니라 **관측**이다. `GetColumnAsset`이 매 접근에 `ComputeSignature`(값싼 prefix: Value2 벌크 + NumberFormatLocal, 렌더 없음)로 현재 지문을 계산해 캐시된 자산의 지문과 `Matches`로 대조하고, 불일치면 **조용히 재스캔**(지문 재사용해 Value2 재독 없음)한다. 파이프라인이 실행 시점마다 캐시를 통과하므로 "낡은 스냅샷으로 필터"는 구조적으로 불가능(`Test_Generation2`가 고정).
+- **정합성 최대 고정**(설계 근거: `docs/tasks/2026-07-09_cache_fingerprint_design.md`): 지문 = RowCount + ContentVec(Value2 배열 저장-비교, 충돌0) + 서식rep(균일=문자열/혼합=블록목록). 값·서식 변경을 전부 관측으로 잡는다. **이벤트/세대 없음** — 무효화를 미검증 이벤트 경로에 맡기지 않는다. CF는 우주 불변(P8 실측)이라 지문 대상 아님. 유일한 잔여는 modColumnScan의 `.Text` CF추종 렌더버그(P8 결론2, 후속 태스크).
 - 스캔은 **주입 범위를 신뢰**한다(끝쪽 빈칸도 필터 대상 행). 범위 경계의 진실은 호출부 소유: ListObject는 DataBodyRange, AutoFilter는 AutoFilter.Range에서 헤더 제외.
 
 ### 값 지도(ValueMap) 계약

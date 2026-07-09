@@ -1,5 +1,8 @@
 # 캐시 지문 구현 계획 (2026-07-09)
 
+상태: **구현 완료 (Stage A~D, 55/55 green).** clsColSig + ComputeSignature/BuildAssetFromSig
+분할 + GetColumnAsset 지문 재배선 + 이벤트/세대 철거 + 문서 갱신 완료. 아래 계획대로 착수됨.
+
 설계·실측 근거: `2026-07-09_cache_fingerprint_design.md`(관측/결정) + AutoFilterTest
 `gap-probe-findings.md` P7/P8. 이 문서는 **구현 절차**만 담는다.
 
