@@ -150,7 +150,7 @@ Public Sub Test_CS_BlockMixed()
     DropSheet
 End Sub
 
-' @desc 데이터는 균일하나 빈칸만 다른 서식일 때 단일 고속 경로 정확성을 검증함
+' @desc 데이터는 균일하나 빈칸만 다른 서식일 때 분할이 올바른 결과를 내는지 검증함
 Public Sub Test_CS_DataUniformBlankPollution()
     Dim ws As Worksheet
     Set ws = PrepSheet()
