@@ -52,7 +52,15 @@ Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
 
     Dim blankCount As Long
     If IsNull(vFmt) Then
-        blankCount = BuildMixed(rTarget, v2, nRows, vm, rowByKey)
+        ' 전체 범위가 '혼합'으로 보여도 빈칸(다른 서식) 오염일 수 있다.
+        ' 데이터 셀만으로 재판정해 균일이면 분할 없이 단일 고속 경로.
+        Dim dataFmt As String
+        dataFmt = DataUniformFormat(rTarget)
+        If Len(dataFmt) > 0 Then
+            blankCount = RenderBlock(rTarget, v2, 1, nRows, dataFmt, vm, rowByKey)
+        Else
+            blankCount = BuildMixed(rTarget, v2, nRows, vm, rowByKey)
+        End If
     Else
         blankCount = RenderBlock(rTarget, v2, 1, nRows, CStr(vFmt), vm, rowByKey)
     End If
@@ -151,6 +159,30 @@ Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
     Next e
 
     RenderBlock = blankCount
+End Function
+
+' 데이터(비빈칸) 셀만의 서식이 균일하면 그 서식 문자열을, 아니면 "" 반환.
+' 빈칸이 데이터와 다른 서식이어서 전체 범위가 Null로 오판될 때 쓴다.
+' SpecialCells로 상수/수식 셀을 area로 모아 단일 서식 프로브(빈칸 제외).
+Private Function DataUniformFormat(ByVal rTarget As Range) As String
+    Dim dc As Range, fc As Range, dataCells As Range
+    On Error Resume Next
+    Set dc = rTarget.SpecialCells(xlCellTypeConstants)
+    Set fc = rTarget.SpecialCells(xlCellTypeFormulas)
+    On Error GoTo 0
+
+    If dc Is Nothing And fc Is Nothing Then Exit Function   ' 데이터 없음
+    If dc Is Nothing Then
+        Set dataCells = fc
+    ElseIf fc Is Nothing Then
+        Set dataCells = dc
+    Else
+        Set dataCells = Application.Union(dc, fc)
+    End If
+
+    Dim f As Variant
+    f = dataCells.NumberFormatLocal
+    If Not IsNull(f) Then DataUniformFormat = CStr(f)
 End Function
 
 ' 혼합 서식: 이진 분할로 균일 블록을 찾아 블록별 고속 렌더. 빈칸 수 반환.

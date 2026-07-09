@@ -150,6 +150,31 @@ Public Sub Test_CS_BlockMixed()
     DropSheet
 End Sub
 
+' @desc 데이터는 균일하나 빈칸만 다른 서식일 때 단일 고속 경로 정확성을 검증함
+Public Sub Test_CS_DataUniformBlankPollution()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.Range("A1:A5").NumberFormat = "#,##0"
+    ws.Range("A1").Value = 1000
+    ws.Range("A2").Value = 2000
+    ' A3은 빈칸이면서 General 서식 -> 전체 범위 NumberFormatLocal이 Null로 오판
+    ws.Range("A3").NumberFormat = "General"
+    ws.Range("A4").Value = 1000
+    ws.Range("A5").Value = 3000
+
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A5"), "T", 1)
+
+    ' 데이터 셀만 재판정하면 #,##0 균일 -> 올바른 표시 키
+    LogShim.AssertEq "cs_pollute_displays", CLng(3), asset.Displays.Count
+    LogShim.AssertEq "cs_pollute_comma", True, asset.Displays.Contains("1,000")
+    LogShim.AssertEq "cs_pollute_2k", True, asset.Displays.Contains("2,000")
+    LogShim.AssertEq "cs_pollute_rows1k", CLng(2), CLng(asset.RowCountByKey("1,000"))
+    LogShim.AssertEq "cs_pollute_blank", CLng(1), asset.BlankCount
+
+    DropSheet
+End Sub
+
 ' @desc 에러 셀과 빈 열의 방어 동작을 검증함
 Public Sub Test_CS_ErrorAndEmpty()
     Dim ws As Worksheet

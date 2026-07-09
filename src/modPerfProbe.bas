@@ -19,6 +19,8 @@ Public Sub RunScanPerf()
     MeasureHighCardinality 100000
     MeasureBlockMixed 50000
     MeasureMixedFormat 50000
+    MeasureBlanksSameFmt 50000
+    MeasureBlanksDiffFmt 50000
     MeasureRawOps 100000
 
 Done:
@@ -146,6 +148,104 @@ Private Sub MeasureMixedFormat(ByVal nRows As Long)
     Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
     LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
         Array("mixed_fmt", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
+End Sub
+
+' 데이터 균일 + 빈칸 같은 서식(열 전체 서식): 오판 없음 기대(단일 고속 경로).
+Private Sub MeasureBlanksSameFmt(ByVal nRows As Long)
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    Dim rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(nRows, 1))
+    rng.NumberFormat = "#,##0"        ' 빈칸 포함 열 전체 동일 서식
+
+    Dim i As Long
+    For i = 1 To nRows
+        If i Mod 10 <> 0 Then ws.Cells(i, 1).Value = (i Mod 100) * 7  ' 10칸마다 빈칸
+    Next i
+
+    modCache.InvalidateCacheBySheet ws
+    Dim t0 As Single
+    t0 = Timer
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
+        Array("blank_samefmt", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
+End Sub
+
+' 데이터 균일 + 빈칸만 다른 서식(General): NumberFormatLocal Null 오판 -> 분할 폭증.
+Private Sub MeasureBlanksDiffFmt(ByVal nRows As Long)
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    Dim rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(nRows, 1))
+    rng.NumberFormat = "#,##0"
+
+    Dim i As Long
+    For i = 1 To nRows
+        If i Mod 10 = 0 Then
+            ws.Cells(i, 1).NumberFormat = "General"   ' 빈칸만 General
+        Else
+            ws.Cells(i, 1).Value = (i Mod 100) * 7
+        End If
+    Next i
+
+    modCache.InvalidateCacheBySheet ws
+    Dim t0 As Single
+    t0 = Timer
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
+        Array("blank_difffmt", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
+End Sub
+
+' 진단: 빈칸 제외 데이터 셀만의 NumberFormatLocal이 균일값을 값싸게 주는가?
+Public Sub DiagDataOnlyFormat()
+    LogShim.Reset
+    Const N As Long = 50000
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    Dim rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(N, 1))
+    rng.NumberFormat = "#,##0"
+    Dim i As Long
+    For i = 1 To N
+        If i Mod 10 = 0 Then
+            ws.Cells(i, 1).NumberFormat = "General"
+        Else
+            ws.Cells(i, 1).Value = (i Mod 100) * 7
+        End If
+    Next i
+
+    Dim t0 As Single
+    ' 전체 범위 서식
+    t0 = Timer
+    Dim whole As Variant
+    whole = rng.NumberFormatLocal
+    Dim wStr As String
+    If IsNull(whole) Then wStr = "(null)" Else wStr = CStr(whole)
+    LogShim.LogEvent "diag", Array("op", "val", "ms"), _
+        Array("whole", wStr, CLng((Timer - t0) * 1000!))
+
+    ' 데이터(상수) 셀만
+    t0 = Timer
+    Dim dc As Range, dfmt As Variant
+    On Error Resume Next
+    Set dc = rng.SpecialCells(xlCellTypeConstants)
+    On Error GoTo 0
+    Dim areas As Long, dStr As String
+    If dc Is Nothing Then
+        areas = 0
+        dStr = "(no cells)"
+    Else
+        areas = dc.Areas.Count
+        dfmt = dc.NumberFormatLocal
+        If IsNull(dfmt) Then dStr = "(null)" Else dStr = CStr(dfmt)
+    End If
+    LogShim.LogEvent "diag", Array("op", "areas", "val", "ms"), _
+        Array("constants", areas, dStr, CLng((Timer - t0) * 1000!))
+
+    DropSheet
+    LogShim.LogEvent "perf_done", Array("ok"), Array(True)
 End Sub
 
 ' 원시 연산별 단가를 잰다: 벌크 Value2 / 셀별 .Text / 셀별 fmtLocal / 고유값 TEXT.
