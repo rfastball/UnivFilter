@@ -3,9 +3,10 @@ Attribute VB_Name = "modColumnScan"
 ' @depends clsColAsset, clsSet, modLogger
 Option Explicit
 
-' 표시 키 규칙 (실측: AutoFilterTest gap-probe-findings.md P4/P6):
+' 표시 키 규칙 (실측: AutoFilterTest gap-probe-findings.md P4/P6/P7):
 '  - 서식에 * 포함: TEXT(Value2, fmtLocal에서 ! 제거) 접힌형이 매칭 키
-'  - 그 외: Range.Text가 매칭 키. #-런(좁은 열)은 AutoFit 재독 후 폭 복원
+'  - 그 외: Range.Text가 매칭 키. 단 폭에 잘린 형은 AutoFit 재독 후 폭 복원:
+'    #-런(고정서식은 #####로 잘림) + General 전체(과학표기/반올림으로 잘림, # 없음, P7)
 '  - 텍스트/에러/불리언 셀은 .Text 그대로, 빈칸은 키 없음(BlankCount)
 '
 ' 성능 계약:
@@ -71,6 +72,9 @@ Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
                             ByVal rowByKey As Object) As Long
     Dim isPad As Boolean
     isPad = (InStr(fmt, "*") > 0)
+    ' General은 좁으면 과학표기/반올림으로 잘린다(#-런 아님). 캐논형 확보 위해 AutoFit 재독 강제.
+    Dim isGeneral As Boolean
+    isGeneral = IsGeneralFmt(fmt)
     Dim cleanFmt As String
     cleanFmt = Replace(fmt, "!", "")
 
@@ -102,7 +106,7 @@ Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
     ' pass 2: 고유값당 1회 렌더 (첫 등장 셀 .Text 또는 * 접힌형 TEXT)
     Dim keyByTag As Object
     Set keyByTag = CreateObject("Scripting.Dictionary")
-    Dim hashTags As New Collection
+    Dim refitTags As New Collection
     Dim vt As Variant, r As Long, val As Variant, key As String
     For Each vt In uniqFirst.Keys
         r = uniqFirst(vt)
@@ -114,13 +118,14 @@ Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
             If Len(key) = 0 Then key = rTarget.Cells(r, 1).Text
         Else
             key = rTarget.Cells(r, 1).Text       ' 그 외: 실셀 .Text (충실)
-            If IsHashRun(key) Then hashTags.Add vt
+            ' 폭에 잘린 형 방어: #-런(고정서식) + General 전체(과학표기/반올림)
+            If isGeneral Or IsHashRun(key) Then refitTags.Add vt
         End If
         keyByTag(vt) = key
     Next vt
 
-    ' ### 좁은 열: 1회 AutoFit 후 해당 고유값만 재독, 폭 복원
-    If hashTags.Count > 0 Then
+    ' 폭에 잘린 고유값: 1회 AutoFit 후 해당 값만 캐논형으로 재독, 폭 복원
+    If refitTags.Count > 0 Then
         Dim col As Range
         Set col = rTarget.EntireColumn
         Dim wPrev As Double
@@ -128,8 +133,8 @@ Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
         On Error Resume Next
         col.AutoFit
         Dim h As Long
-        For h = 1 To hashTags.Count
-            keyByTag(hashTags(h)) = rTarget.Cells(uniqFirst(hashTags(h)), 1).Text
+        For h = 1 To refitTags.Count
+            keyByTag(refitTags(h)) = rTarget.Cells(uniqFirst(refitTags(h)), 1).Text
         Next h
         col.ColumnWidth = wPrev
         On Error GoTo 0
@@ -209,7 +214,9 @@ Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
     Dim keys() As String
     ReDim keys(1 To nRows)
 
-    Dim i As Long, needHash As Boolean
+    Dim refit() As Boolean
+    ReDim refit(1 To nRows)
+    Dim i As Long, needRefit As Boolean
     Dim c As Range, f As String
     For i = 1 To nRows
         If IsEmpty(v2(i, 1)) Then
@@ -224,11 +231,17 @@ Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
                 If Len(keys(i)) = 0 Then keys(i) = c.Text
             Else
                 keys(i) = c.Text
-                If VarType(v2(i, 1)) = vbDouble And IsHashRun(keys(i)) Then needHash = True
+                ' 폭에 잘린 형 방어: General(과학표기/반올림) + #-런(고정서식)
+                If VarType(v2(i, 1)) = vbDouble Then
+                    If IsGeneralFmt(f) Or IsHashRun(keys(i)) Then
+                        refit(i) = True
+                        needRefit = True
+                    End If
+                End If
             End If
         End If
     Next i
-    If needHash Then FixHashKeys rTarget, keys, nRows
+    If needRefit Then FixHashKeys rTarget, keys, refit, nRows
 
     Dim blankCount As Long, k As String
     For i = 1 To nRows
@@ -264,8 +277,9 @@ Private Function ResolveTarget(ByVal rngCol As Range) As Range
     Set ResolveTarget = rngCol.Columns(1)
 End Function
 
-' #-런 키를 AutoFit 재독으로 복구하고 열 폭을 복원한다 (셀별 폴백용).
-Private Sub FixHashKeys(ByVal rTarget As Range, ByRef keys() As String, ByVal nRows As Long)
+' 폭에 잘린 키를 AutoFit 재독으로 캐논형 복구하고 열 폭을 복원한다 (셀별 폴백용).
+Private Sub FixHashKeys(ByVal rTarget As Range, ByRef keys() As String, _
+                       ByRef refit() As Boolean, ByVal nRows As Long)
     Dim col As Range
     Set col = rTarget.EntireColumn
 
@@ -277,7 +291,7 @@ Private Sub FixHashKeys(ByVal rTarget As Range, ByRef keys() As String, ByVal nR
 
     Dim i As Long
     For i = 1 To nRows
-        If IsHashRun(keys(i)) Then keys(i) = rTarget.Cells(i, 1).Text
+        If refit(i) Then keys(i) = rTarget.Cells(i, 1).Text
     Next i
 
 Restore:
@@ -294,6 +308,12 @@ Private Function IsHashRun(ByVal s As String) As Boolean
         If Mid$(s, i, 1) <> "#" Then Exit Function
     Next i
     IsHashRun = True
+End Function
+
+' General 서식(로컬 "G/표준" 또는 "General")인지 확인한다. General은 폭에 따라
+' 과학표기/반올림으로 잘려 #-런이 아닌 잘못된 키를 낼 수 있어 AutoFit 재독이 필요하다.
+Private Function IsGeneralFmt(ByVal fmt As String) As Boolean
+    IsGeneralFmt = (fmt = "General") Or (fmt = "G/" & ChrW(&HD45C) & ChrW(&HC900))
 End Function
 
 ' WorksheetFunction.Text를 오류 없이 시도한다(실패 시 빈 문자열).

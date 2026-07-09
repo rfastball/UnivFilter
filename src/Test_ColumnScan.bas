@@ -97,6 +97,48 @@ Public Sub Test_CS_HashNarrow()
     DropSheet
 End Sub
 
+' @desc General 좁은 열(과학표기/반올림, #-런 아님)이 캐논형 키로 복구되는지 검증함
+Public Sub Test_CS_GeneralNarrow()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.Range("A1").NumberFormat = "General"
+    ws.Range("A1").Value = 123456789012#     ' 좁으면 과학표기(1E+11) - # 없음
+    ws.Range("A2").NumberFormat = "General"
+    ws.Range("A2").Value = 0.123456789012    ' 좁으면 반올림(0.1235) - # 없음
+    ws.Columns("A").ColumnWidth = 6
+
+    ' 현재 좁은폭 표시(버그 시 이게 잘못된 키가 됨)
+    Dim narrowBig As String
+    narrowBig = ws.Range("A1").Text
+
+    ' 캐논형 오라클: AutoFit 후 .Text (실측상 AutoFilter 매칭 대상), 폭 6으로 복원 후 스캔
+    ws.Columns("A").AutoFit
+    Dim expBig As String, expFrac As String
+    expBig = ws.Range("A1").Text
+    expFrac = ws.Range("A2").Text
+    ws.Columns("A").ColumnWidth = 6
+
+    ' 전제: 좁힘이 실제로 표시를 바꿨다 (안 바뀌면 케이스 무의미)
+    LogShim.AssertEq "cs_gennar_premise", True, (narrowBig <> expBig)
+
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T", 1)
+
+    ' 좁은 열이어도 캐논형 키로 저장돼야 한다
+    LogShim.AssertEq "cs_gennar_big", True, asset.Displays.Contains(expBig)
+    LogShim.AssertEq "cs_gennar_frac", True, asset.Displays.Contains(expFrac)
+    ' 잘린 현재폭형이 키로 새면 안 된다
+    LogShim.AssertEq "cs_gennar_no_trunc", False, asset.Displays.Contains(narrowBig)
+    ' 값 지도도 캐논형으로 연결
+    LogShim.AssertEq "cs_gennar_vmap", True, _
+        (InStr(vbNullChar & asset.ValueMap(CStr(123456789012#)) & vbNullChar, _
+               vbNullChar & expBig & vbNullChar) > 0)
+    ' 폭 복원
+    LogShim.AssertEq "cs_gennar_width_restored", CDbl(6), ws.Columns("A").ColumnWidth
+
+    DropSheet
+End Sub
+
 ' @desc 실제 날짜와 텍스트 쌍둥이가 하나의 표시 키로 합쳐지는지 검증함
 Public Sub Test_CS_DateAndText()
     Dim ws As Worksheet
