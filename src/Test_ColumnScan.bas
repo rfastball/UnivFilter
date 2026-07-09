@@ -236,6 +236,44 @@ Public Sub Test_CS_ErrorAndEmpty()
     DropSheet
 End Sub
 
+' @desc CF(숫자서식) 열이 CF형이 아닌 기본서식 캐논형 키로 렌더되는지 검증함(P8 결론2/P9)
+Public Sub Test_CS_CondFormatRender()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ' 혼합 두 셀: #,##0 + General (General은 WText 로컬토큰 실패 케이스 - "General" 매핑 검증)
+    ws.Range("A1").NumberFormat = "#,##0"
+    ws.Range("A1").Value = 1000
+    ws.Range("A2").NumberFormat = "General"
+    ws.Range("A2").Value = 12.5
+
+    ' 오라클(기본서식 렌더) = AutoFilter 매칭형
+    Dim oracleComma As String, oracleGen As String
+    oracleComma = ws.Range("A1").Text     ' "1,000"
+    oracleGen = ws.Range("A2").Text       ' "12.5"
+
+    ' 숫자서식 CF 추가 -> .Text가 CF형("1000.00"/"12.50")으로 바뀐다
+    ws.Range("A1:A2").FormatConditions.Delete
+    Dim fc As FormatCondition
+    Set fc = ws.Range("A1:A2").FormatConditions.Add(Type:=xlExpression, Formula1:="=TRUE")
+    fc.NumberFormat = "0.00"
+
+    ' 전제: .Text가 실제로 CF를 추종해 오라클과 달라졌다
+    LogShim.AssertEq "cs_cf_premise", True, (ws.Range("A1").Text <> oracleComma)
+
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T")
+
+    ' 기본서식 캐논형이 키여야 AutoFilter가 매칭(CF형은 0건 무음실패)
+    LogShim.AssertEq "cs_cf_comma_base", True, asset.Displays.Contains(oracleComma)
+    LogShim.AssertEq "cs_cf_gen_base", True, asset.Displays.Contains(oracleGen)
+    ' CF형이 키로 새면 안 된다
+    LogShim.AssertEq "cs_cf_no_cfform_comma", False, asset.Displays.Contains(ws.Range("A1").Text)
+    LogShim.AssertEq "cs_cf_no_cfform_gen", False, asset.Displays.Contains(ws.Range("A2").Text)
+
+    ws.Range("A1:A2").FormatConditions.Delete
+    DropSheet
+End Sub
+
 ' 스크래치 시트를 만들고 초기화한다.
 Private Function PrepSheet() As Worksheet
     Dim ws As Worksheet

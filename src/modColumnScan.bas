@@ -91,19 +91,24 @@ Public Function BuildAssetFromSig(ByVal rngCol As Range, ByVal sID As String, _
     Dim v2 As Variant
     v2 = sig.ContentVec
 
+    ' 조건부서식(CF) 유무 1회 판정(O(1)): CF 있으면 숫자 셀은 .Text(CF 추종) 대신
+    ' 기본서식 WText로 렌더한다 (P9: AutoFilter는 CF 아닌 기본서식 캐논형만 매칭).
+    Dim hasCF As Boolean
+    hasCF = HasConditionalFormat(rTarget)
+
     Dim blankCount As Long
     Dim blk As Variant
     If sig.IsPathological Then
         ' 과편성 서식: 셀별 폴백 (지문은 항상 재스캔 센티넬)
-        blankCount = BuildPerCell(rTarget, v2, nRows, vm, rowByKey)
+        blankCount = BuildPerCell(rTarget, v2, nRows, vm, rowByKey, hasCF)
     ElseIf sig.IsMixed Then
         ' 혼합: 지문이 이미 찾은 블록 경계를 그대로 순회 (재분할 없음)
         For Each blk In sig.Blocks
             blankCount = blankCount + RenderBlock(rTarget, v2, _
-                CLng(blk(0)), CLng(blk(1)), CStr(blk(2)), vm, rowByKey)
+                CLng(blk(0)), CLng(blk(1)), CStr(blk(2)), vm, rowByKey, hasCF)
         Next blk
     Else
-        blankCount = RenderBlock(rTarget, v2, 1, nRows, sig.FmtUniform, vm, rowByKey)
+        blankCount = RenderBlock(rTarget, v2, 1, nRows, sig.FmtUniform, vm, rowByKey, hasCF)
     End If
 
     ' 표시 집합: 행수 지도의 키가 곧 고유 표시 키 (블록 누적 후 1회)
@@ -117,7 +122,7 @@ End Function
 Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
                             ByVal firstRow As Long, ByVal lastRow As Long, _
                             ByVal fmt As String, ByVal vm As Object, _
-                            ByVal rowByKey As Object) As Long
+                            ByVal rowByKey As Object, ByVal hasCF As Boolean) As Long
     Dim isPad As Boolean
     isPad = (InStr(fmt, "*") > 0)
     ' General은 좁으면 과학표기/반올림으로 잘린다(#-런 아님). 캐논형 확보 위해 AutoFit 재독 강제.
@@ -162,8 +167,12 @@ Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
         If VarType(val) = vbString Then
             key = CStr(val)                      ' 텍스트 셀: 자기 자신, 렌더 불요
         ElseIf isPad Then
-            key = SafeWText(val, cleanFmt)       ' * 패딩: 접힌형 TEXT
+            key = SafeWText(val, cleanFmt)       ' * 패딩: 접힌형 TEXT (CF-안전)
             If Len(key) = 0 Then key = rTarget.Cells(r, 1).Text
+        ElseIf hasCF And VarType(val) = vbDouble Then
+            ' CF 열의 숫자: .Text는 CF 추종하므로 기본서식 WText로 렌더(폭 독립, AutoFit 불요)
+            key = SafeWText(val, RenderFmt(fmt, cleanFmt, isGeneral))
+            If Len(key) = 0 Then key = rTarget.Cells(r, 1).Text   ' 잔여: WText 빈문자열 폴백
         Else
             key = rTarget.Cells(r, 1).Text       ' 그 외: 실셀 .Text (충실)
             ' 폭에 잘린 형 방어: #-런(고정서식) + General 전체(과학표기/반올림)
@@ -236,7 +245,7 @@ End Function
 ' 셀별 폴백(과편성 서식 전용): 같은 값도 셀마다 다르게 표시될 수 있어 셀별 렌더.
 Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
                              ByVal nRows As Long, ByVal vm As Object, _
-                             ByVal rowByKey As Object) As Long
+                             ByVal rowByKey As Object, ByVal hasCF As Boolean) As Long
     Dim keys() As String
     ReDim keys(1 To nRows)
 
@@ -254,6 +263,10 @@ Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
             f = SafeFmtLocal(c)
             If InStr(f, "*") > 0 And VarType(v2(i, 1)) = vbDouble Then
                 keys(i) = SafeWText(v2(i, 1), Replace(f, "!", ""))
+                If Len(keys(i)) = 0 Then keys(i) = c.Text
+            ElseIf hasCF And VarType(v2(i, 1)) = vbDouble Then
+                ' CF 열의 숫자: 기본서식 WText로 렌더(.Text는 CF 추종, 폭 독립)
+                keys(i) = SafeWText(v2(i, 1), RenderFmt(f, Replace(f, "!", ""), IsGeneralFmt(f)))
                 If Len(keys(i)) = 0 Then keys(i) = c.Text
             Else
                 keys(i) = c.Text
@@ -340,6 +353,20 @@ End Function
 ' 과학표기/반올림으로 잘려 #-런이 아닌 잘못된 키를 낼 수 있어 AutoFit 재독이 필요하다.
 Private Function IsGeneralFmt(ByVal fmt As String) As Boolean
     IsGeneralFmt = (fmt = "General") Or (fmt = "G/" & ChrW(&HD45C) & ChrW(&HC900))
+End Function
+
+' 범위에 조건부서식(CF)이 걸려 있는지 1회 판정한다(있으면 숫자 렌더를 기본서식 WText로 전환).
+Private Function HasConditionalFormat(ByVal rTarget As Range) As Boolean
+    On Error Resume Next
+    HasConditionalFormat = (rTarget.FormatConditions.Count > 0)
+    On Error GoTo 0
+End Function
+
+' CF 셀 WText 렌더용 서식 결정: General은 로컬 토큰(G/표준)을 TEXT가 미해석하므로 영문 "General",
+' 그 외는 ! 제거한 서식 (P9: 공통 숫자서식은 로컬==영문이라 WText가 오라클을 재현).
+Private Function RenderFmt(ByVal localFmt As String, ByVal cleanFmt As String, _
+                           ByVal isGeneral As Boolean) As String
+    If isGeneral Then RenderFmt = "General" Else RenderFmt = cleanFmt
 End Function
 
 ' WorksheetFunction.Text를 오류 없이 시도한다(실패 시 빈 문자열).
