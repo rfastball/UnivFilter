@@ -125,6 +125,32 @@ after:  GetColumnAsset -> sig = ComputeSignature(rng) -> cached.Signature.Matche
 - **stale p-code**: 클래스 신설/모듈 prune 후 크래시 시 재push + `vbaflow session stop/start`(기지 절차).
 - **빈 열**: `ResolveTarget=Nothing` -> RowCount 0, ContentVec Empty, 균일 "" -> Matches 자기일관.
 
+## 성능 벤치마크 실측 (`modPerfProbe.RunFingerprintBench`, 200회 평균)
+
+저카디널리티 필터 열, `OptimizedMode`, ms 단위:
+
+| 열 크기 | 미스(재빌드) | **적중(접근당)** | ComputeSig | Matches(동일) | Matches(조기탈출) |
+|---|---|---|---|---|---|
+| 10k comma | 19.5 | **1.93** | 0.57 | 1.35 | 0.08 |
+| 50k comma | 74.2 | **10.2** | 3.18 | 6.86 | 0.63 |
+| 100k comma | 136.7 | **20.1** | 6.21 | 13.7 | 1.23 |
+| 50k 혼합3블록 | 156.3 | **12.7** | 5.66 | 7.05 | 0.65 |
+
+해석:
+- **적중 = ComputeSig + Matches.** 접근당 ~2ms(10k)/~10ms(50k)/~20ms(100k). 구 O(1) Long 비교
+  대비 이것이 **"정합성의 대가"**. 필터는 사용자 페이스라 100k에서도 20ms = 무감각 → 설계
+  "수십 ms 무감각" 주장 실증.
+- **적중은 미스의 ~1/7** (100k: 20 vs 137). prefix/suffix 분할이 재빌드의 ~85%를 회피 → 분할 설계 검증.
+- **지배 항은 Value2 읽기(ComputeSig)가 아니라 ContentVec 원소별 대조(Matches).** 배열 저장-비교
+  (충돌0)의 대가. 선형이고 100k에서도 ~14ms. (정합성 최대화의 값이 여기 있음 - 수용.)
+- **조기탈출**: 변경된 열은 Matches가 첫 원소에서 즉시 이탈(0.08~1.23ms) → stale 감지 실비용은
+  사실상 ComputeSig(Value2 읽기)뿐. 스래싱 소멸과 합쳐 편집 잦은 워크북에서 유리.
+- **혼합 열**: ComputeSig에 TryPartition ~2.5ms 추가(50k 3블록) - 유계, 무감각.
+- 메모리: ContentVec = 행수 x ~16B(Variant). 100k ≈ 1.6MB/열, 필터하는 열 수만큼(유계).
+
+향후 속도 회복 여지(원칙: 측정으로): Matches 지배 → 매우 큰 열에서 문제되면 값싼 사전거부
+해시를 배열 옆에 병치(불일치 조기컷)하는 설계 고도화 가능. 현 수치로는 불요.
+
 ## 범위 밖 (후속 태스크로 분리)
 - **modColumnScan CF 렌더버그**(P8 결론2): `.Text`가 CF 추종 -> 숫자서식 CF 열에서 스캔이 CF형
   저장, AutoFilter는 기본형 매칭 -> 0건 무음 실패. 지문 완료 후 독립 프로브/설계. 여기선 미착수.

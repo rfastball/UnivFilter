@@ -1,6 +1,6 @@
 Attribute VB_Name = "modPerfProbe"
 ' @desc 스캔 병목 계측 일회용 프로브 담당
-' @depends modColumnScan, modCache, Utilities, LogShim
+' @depends modColumnScan, modCache, clsColSig, Utilities, LogShim
 Option Explicit
 
 Private Const SHEET_NAME As String = "UF_PerfProbe"
@@ -392,6 +392,103 @@ Done:
     Utilities.OptimizedMode False
     DropSheet
     LogShim.LogEvent "perf_done", Array("ok"), Array(Err.Number = 0)
+End Sub
+
+' @desc 지문 신선도 경로(적중/미스/대조/조기탈출)의 접근당 비용을 로그로 기록함
+Public Sub RunFingerprintBench()
+    LogShim.Reset
+    Utilities.OptimizedMode True
+    On Error GoTo Done
+
+    BenchSize "comma_10k", "#,##0", 10000, False
+    BenchSize "comma_50k", "#,##0", 50000, False
+    BenchSize "comma_100k", "#,##0", 100000, False
+    BenchSize "blockmix_50k", "", 50000, True
+
+Done:
+    Utilities.OptimizedMode False
+    DropSheet
+    LogShim.LogEvent "perf_done", Array("ok"), Array(Err.Number = 0)
+End Sub
+
+' 지정 열에서 미스(재빌드)/적중(지문+대조)/ComputeSignature/Matches 단가를 REP회 평균으로 잰다.
+Private Sub BenchSize(ByVal tag As String, ByVal numFmt As String, _
+                      ByVal nRows As Long, ByVal blockMixed As Boolean)
+    Const REP As Long = 200
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+
+    Dim arr() As Variant
+    ReDim arr(1 To nRows, 1 To 1)
+    Dim i As Long
+    For i = 1 To nRows
+        arr(i, 1) = (i Mod 100) * 7      ' 저카디널리티(실사용 필터 열)
+    Next i
+    Dim rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(nRows, 1))
+    rng.Value2 = arr
+    If blockMixed Then
+        ' 3블록: 전반 #,##0 / 중반 0 / 후반 $#,##0 (ComputeSignature가 TryPartition 수행)
+        Dim third As Long
+        third = nRows \ 3
+        ws.Range(ws.Cells(1, 1), ws.Cells(third, 1)).NumberFormat = "#,##0"
+        ws.Range(ws.Cells(third + 1, 1), ws.Cells(2 * third, 1)).NumberFormat = "0"
+        ws.Range(ws.Cells(2 * third + 1, 1), ws.Cells(nRows, 1)).NumberFormat = "$#,##0"
+    Else
+        rng.NumberFormat = numFmt
+    End If
+
+    Dim t0 As Single, j As Long
+    Dim asset As clsColAsset
+    Dim sig As clsColSig, s1 As clsColSig, s2 As clsColSig, s3 As clsColSig
+    Dim b As Boolean
+
+    ' 1) 미스(콜드): ComputeSignature + BuildAssetFromSig 전체 재빌드
+    modCache.ClearCache
+    t0 = Timer
+    Set asset = modCache.GetColumnAsset(rng)
+    BenchLog tag, "miss_rebuild", nRows, (Timer - t0) * 1000!, 1
+
+    ' 2) 적중(웜): ComputeSignature + Matches (렌더 없음) - 신 설계의 접근당 비용
+    t0 = Timer
+    For j = 1 To REP
+        Set asset = modCache.GetColumnAsset(rng)
+    Next j
+    BenchLog tag, "hit_getasset", nRows, (Timer - t0) * 1000!, REP
+
+    ' 3) ComputeSignature 단독 (적중 비용의 지배 항: Value2 벌크 + 서식 판정)
+    t0 = Timer
+    For j = 1 To REP
+        Set sig = modColumnScan.ComputeSignature(rng)
+    Next j
+    BenchLog tag, "computesig", nRows, (Timer - t0) * 1000!, REP
+
+    ' 4) Matches 단독(동일 지문): ContentVec 원소별 대조 전량 통과
+    Set s1 = modColumnScan.ComputeSignature(rng)
+    Set s2 = modColumnScan.ComputeSignature(rng)
+    t0 = Timer
+    For j = 1 To REP
+        b = s1.Matches(s2)
+    Next j
+    BenchLog tag, "matches_same", nRows, (Timer - t0) * 1000!, REP
+
+    ' 5) Matches 조기탈출(1행만 편집): 첫 원소 불일치로 즉시 이탈
+    ws.Cells(1, 1).Value = CDbl(ws.Cells(1, 1).Value) + 1
+    Set s3 = modColumnScan.ComputeSignature(rng)
+    t0 = Timer
+    For j = 1 To REP
+        b = s1.Matches(s3)
+    Next j
+    BenchLog tag, "matches_earlyexit", nRows, (Timer - t0) * 1000!, REP
+End Sub
+
+Private Sub BenchLog(ByVal tag As String, ByVal metric As String, ByVal nRows As Long, _
+                     ByVal totalMs As Double, ByVal rep As Long)
+    Dim perOp As Double
+    perOp = totalMs / rep
+    LogShim.LogEvent "fpbench", _
+        Array("case", "metric", "rows", "totalMs", "rep", "perOpMs"), _
+        Array(tag, metric, nRows, Format$(totalMs, "0.0"), rep, Format$(perOp, "0.000"))
 End Sub
 
 Private Function PrepSheet() As Worksheet
