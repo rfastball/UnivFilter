@@ -95,17 +95,11 @@ Private Function BuildTestAsset() As clsColAsset
     displays.Add "1,000"
     displays.Add "Apple"
 
+    ' 값 지도 값은 vbNullChar 연결 문자열 (modColumnScan 성능 계약)
     Dim vm As Object
     Set vm = CreateObject("Scripting.Dictionary")
-
-    Dim sHalf As New clsSet
-    sHalf.Add "0.50"
-    sHalf.Add "50%"
-    Set vm(CStr(0.5)) = sHalf
-
-    Dim sThousand As New clsSet
-    sThousand.Add "1,000"
-    Set vm(CStr(1000#)) = sThousand
+    vm(CStr(0.5)) = "0.50" & vbNullChar & "50%"
+    vm(CStr(1000#)) = "1,000"
 
     Dim rbk As Object
     Set rbk = CreateObject("Scripting.Dictionary")

@@ -12,7 +12,8 @@ Option Explicit
 
 ' 표시 키 집합: AutoFilter가 실제로 매칭하는 문자열의 우주 (빈칸 제외)
 Private mDisplays As clsSet
-' 값 지도: CStr(Value2) -> 그 값을 렌더링하는 표시 키 clsSet (숫자/날짜 셀만)
+' 값 지도: CStr(Value2) -> 그 값을 렌더링하는 표시 키들의 vbNullChar 연결 문자열
+' (숫자/날짜 셀만. clsSet 대신 문자열인 이유 = 값당 객체 생성 비용, modColumnScan 참조)
 Private mValueMap As Object
 ' 행수 지도: 표시 키 -> 해당 키의 행수 (적용 자가검증용)
 Private mRowCountByKey As Object

@@ -54,20 +54,21 @@ Private Function MatchToken(ByVal t As String, ByVal asset As clsColAsset, _
             hit = True
         Else
             ' 값 레인: 숫자/날짜 해석 -> 값 지도 -> 표시 키 합류 (자동보정 기록)
+            ' 값 지도 값은 vbNullChar 연결 문자열 (성능 계약 - modColumnScan 참조)
             Dim cands As Variant
             cands = modInputParse.TryParseValues(t)
 
             Dim j As Long, key As String, corr As String
-            Dim ds As clsSet, dk As Variant
+            Dim parts() As String, d As Long
             For j = LBound(cands) To UBound(cands)
                 key = CStr(cands(j))
                 If asset.ValueMap.exists(key) Then
-                    Set ds = asset.ValueMap(key)
-                    For Each dk In ds.KeysArray
-                        matched.Add dk
+                    parts = Split(asset.ValueMap(key), vbNullChar)
+                    For d = 0 To UBound(parts)
+                        matched.Add parts(d)
                         If Len(corr) > 0 Then corr = corr & ", "
-                        corr = corr & CStr(dk)
-                    Next dk
+                        corr = corr & parts(d)
+                    Next d
                     hit = True
                 End If
             Next j

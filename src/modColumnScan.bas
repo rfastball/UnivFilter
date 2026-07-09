@@ -40,30 +40,50 @@ Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
     ReDim keys(1 To nRows)
     RenderKeys rTarget, v2, keys, nRows
 
-    ' 집합/지도 구축
+    ' 집합/지도 구축.
+    ' 성능 계약: 행 루프의 늦은 바인딩 Dictionary 호출은 행당 최소로 유지한다
+    ' (행마다 clsSet을 꺼내 Add하면 10만 행에서 수초 - modPerfProbe로 계측된 병목).
+    ' (값,표시) 쌍은 복합키 대입 1회로 dedup하고 clsSet 조립은 고유 쌍에만 수행.
+    Dim pairSeen As Object
+    Set pairSeen = CreateObject("Scripting.Dictionary")
+    pairSeen.CompareMode = vbTextCompare
+
     Dim i As Long, blankCount As Long
-    Dim k As String, vk As String
+    Dim k As String
     For i = 1 To nRows
         If IsEmpty(v2(i, 1)) Then
             blankCount = blankCount + 1
         Else
             k = keys(i)
             If Len(k) > 0 Then
-                displays.Add k
-                If rowByKey.exists(k) Then
-                    rowByKey(k) = rowByKey(k) + 1
-                Else
-                    rowByKey(k) = 1
-                End If
-                ' 값 지도: 숫자/날짜 셀만 (Value2는 이들을 Double로 반환)
+                rowByKey(k) = rowByKey(k) + 1   ' 미존재 키는 Empty+1=1
+                ' 값 지도 재료: 숫자/날짜 셀만 (Value2는 이들을 Double로 반환)
                 If VarType(v2(i, 1)) = vbDouble Then
-                    vk = CStr(v2(i, 1))
-                    If Not vm.exists(vk) Then Set vm(vk) = New clsSet
-                    vm(vk).Add k
+                    pairSeen(CStr(v2(i, 1)) & vbNullChar & k) = Empty
                 End If
             End If
         End If
     Next i
+
+
+    ' 표시 집합: 행수 지도의 키가 곧 고유 표시 키
+    displays.LoadFromArray rowByKey.Keys
+
+    ' 값 지도: 고유 (값,표시) 쌍에서 vbNullChar 연결 문자열로 조립.
+    ' 성능 계약: 값마다 New clsSet 금지 - 내부 CreateObject가 개당 ~0.5ms라
+    ' 고유값 수천 개면 수초가 된다 (modPerfProbe로 계측된 병목).
+    Dim vPair As Variant, p As Long, vk As String
+    For Each vPair In pairSeen.Keys
+        p = InStr(1, vPair, vbNullChar)
+        vk = Left$(vPair, p - 1)
+        k = Mid$(vPair, p + 1)
+        If vm.exists(vk) Then
+            vm(vk) = vm(vk) & vbNullChar & k
+        Else
+            vm(vk) = k
+        End If
+    Next vPair
+
 
     asset.Init displays, vm, rowByKey, blankCount, nRows, sID, lGeneration
     Set BuildAsset = asset
@@ -112,9 +132,23 @@ Private Sub RenderKeys(ByVal rTarget As Range, ByVal v2 As Variant, _
                 If Len(keys(i)) = 0 Then keys(i) = rTarget.Cells(i, 1).Text
             End If
         Next i
-    Else
-        ' 셀별 .Text (혼합 서식이면 셀별로 * 패딩 검사)
+    ElseIf uniform Then
+        ' 균일 일반 서식: 셀별 .Text (서식 재검사는 루프 밖에서 이미 끝남)
         Dim needHashFix As Boolean
+        For i = 1 To nRows
+            If IsEmpty(v2(i, 1)) Then
+                keys(i) = ""
+            Else
+                keys(i) = rTarget.Cells(i, 1).Text
+                If VarType(v2(i, 1)) = vbDouble And IsHashRun(keys(i)) Then
+                    needHashFix = True
+                End If
+            End If
+        Next i
+        If needHashFix Then FixHashKeys rTarget, keys, nRows
+    Else
+        ' 혼합 서식: 셀별로 서식을 읽어 * 패딩 검사 (드문 경로)
+        Dim needHashFix2 As Boolean
         For i = 1 To nRows
             If IsEmpty(v2(i, 1)) Then
                 keys(i) = ""
@@ -122,7 +156,7 @@ Private Sub RenderKeys(ByVal rTarget As Range, ByVal v2 As Variant, _
                 Dim c As Range
                 Set c = rTarget.Cells(i, 1)
                 Dim f As String
-                If uniform Then f = CStr(vFmt) Else f = SafeFmtLocal(c)
+                f = SafeFmtLocal(c)
 
                 If InStr(f, "*") > 0 And VarType(v2(i, 1)) = vbDouble Then
                     keys(i) = SafeWText(v2(i, 1), Replace(f, "!", ""))
@@ -130,12 +164,12 @@ Private Sub RenderKeys(ByVal rTarget As Range, ByVal v2 As Variant, _
                 Else
                     keys(i) = c.Text
                     If VarType(v2(i, 1)) = vbDouble And IsHashRun(keys(i)) Then
-                        needHashFix = True
+                        needHashFix2 = True
                     End If
                 End If
             End If
         Next i
-        If needHashFix Then FixHashKeys rTarget, keys, nRows
+        If needHashFix2 Then FixHashKeys rTarget, keys, nRows
     End If
 End Sub
 

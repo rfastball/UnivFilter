@@ -74,7 +74,8 @@ Public Sub Test_CS_MixedFormats()
     LogShim.AssertEq "cs_mix_displays", CLng(2), asset.Displays.Count
     LogShim.AssertEq "cs_mix_050", True, asset.Displays.Contains("0.50")
     LogShim.AssertEq "cs_mix_50pct", True, asset.Displays.Contains("50%")
-    LogShim.AssertEq "cs_mix_vmap_twins", CLng(2), asset.ValueMap(CStr(0.5)).Count
+    LogShim.AssertEq "cs_mix_vmap_twins", CLng(2), _
+        CLng(UBound(Split(asset.ValueMap(CStr(0.5)), vbNullChar)) + 1)
 
     DropSheet
 End Sub
