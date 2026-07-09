@@ -52,7 +52,7 @@ Private Sub MeasureFormat(ByVal tag As String, ByVal numFmt As String, ByVal nRo
     rng.NumberFormat = numFmt
     rng.Value2 = arr
 
-    modCache.InvalidateCacheBySheet ws
+    modCache.ClearCache
 
     Dim t0 As Single
     t0 = Timer
@@ -79,7 +79,7 @@ Private Sub MeasureHighCardinality(ByVal nRows As Long)
     rng.NumberFormat = "#,##0"
     rng.Value2 = arr
 
-    modCache.InvalidateCacheBySheet ws
+    modCache.ClearCache
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
@@ -109,7 +109,7 @@ Private Sub MeasureBlockMixed(ByVal nRows As Long)
     ws.Range(ws.Cells(third + 1, 1), ws.Cells(2 * third, 1)).NumberFormat = "0"
     ws.Range(ws.Cells(2 * third + 1, 1), ws.Cells(nRows, 1)).NumberFormat = "$#,##0"
 
-    modCache.InvalidateCacheBySheet ws
+    modCache.ClearCache
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
@@ -141,7 +141,7 @@ Private Sub MeasureMixedFormat(ByVal nRows As Long)
         ws.Cells(blk, 1).NumberFormat = "0"
     Next blk
 
-    modCache.InvalidateCacheBySheet ws
+    modCache.ClearCache
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
@@ -163,7 +163,7 @@ Private Sub MeasureBlanksSameFmt(ByVal nRows As Long)
         If i Mod 10 <> 0 Then ws.Cells(i, 1).Value = (i Mod 100) * 7  ' 10칸마다 빈칸
     Next i
 
-    modCache.InvalidateCacheBySheet ws
+    modCache.ClearCache
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
@@ -189,7 +189,7 @@ Private Sub MeasureBlanksDiffFmt(ByVal nRows As Long)
         End If
     Next i
 
-    modCache.InvalidateCacheBySheet ws
+    modCache.ClearCache
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset

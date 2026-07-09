@@ -143,8 +143,8 @@ Private Function PrepSheet() As Worksheet
     End If
     ws.AutoFilterMode = False
     ws.Cells.Clear
-    ' 헤드리스에선 AppEvents가 미배선이므로 실환경의 SheetChange 무효화를 수동 재현
-    modCache.InvalidateCacheBySheet ws
+    ' 시트 재생성 간 결정성 확보 (지문이 내용차를 잡지만 잔여 캐시 청소)
+    modCache.ClearCache
     Set PrepSheet = ws
 End Function
 

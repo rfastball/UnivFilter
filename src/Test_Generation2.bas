@@ -105,7 +105,7 @@ Public Sub Test_G2_GlobalInvalidate()
     Dim a1 As clsColAsset
     Set a1 = modCache.GetColumnAsset(ws.Range("A1:A1"))
 
-    modCache.InvalidateCache
+    modCache.ClearCache
 
     Dim a2 As clsColAsset
     Set a2 = modCache.GetColumnAsset(ws.Range("A1:A1"))
@@ -126,7 +126,7 @@ Private Function PrepSheet() As Worksheet
     End If
     ws.Cells.Clear
     ' 잔여 캐시 청소 (지문이 내용차를 잡지만, 시트 재생성 간 결정성 확보)
-    modCache.InvalidateCache
+    modCache.ClearCache
     Set PrepSheet = ws
 End Function
 
