@@ -10,7 +10,7 @@
 - 신선도 = 세대 예측 -> **저장 관측 대조**(지문). `Generation ==` 비교를 `Signature.Matches` 로 대체.
 - 정합성 최대: contentVec는 Value2 배열 저장-비교(충돌 0). fmtRep는 균일=문자열/혼합=블록목록 구조대조.
 - 이벤트 완전 제거(옵션 2): AppEvents 배선/세대 카운터/시트별 무효화 철거. cfGuard 없음(P8: 우주 CF-불변).
-- 범위 밖: modColumnScan의 `.Text` CF추종 렌더버그(P8 결론2)는 **별도 태스크**(지문과 독립).
+- (후속·완료) modColumnScan의 `.Text` CF추종 렌더버그(P8 결론2)는 지문과 독립으로 수정 완료(아래).
 
 ## 아키텍처 변화 (before -> after)
 
@@ -151,6 +151,8 @@ after:  GetColumnAsset -> sig = ComputeSignature(rng) -> cached.Signature.Matche
 향후 속도 회복 여지(원칙: 측정으로): Matches 지배 → 매우 큰 열에서 문제되면 값싼 사전거부
 해시를 배열 옆에 병치(불일치 조기컷)하는 설계 고도화 가능. 현 수치로는 불요.
 
-## 범위 밖 (후속 태스크로 분리)
-- **modColumnScan CF 렌더버그**(P8 결론2): `.Text`가 CF 추종 -> 숫자서식 CF 열에서 스캔이 CF형
-  저장, AutoFilter는 기본형 매칭 -> 0건 무음 실패. 지문 완료 후 독립 프로브/설계. 여기선 미착수.
+## 후속 태스크 (지문과 독립) — 완료
+
+- **modColumnScan CF 렌더버그**(P8 결론2): **수정 완료.** P9 프로브로 오라클 확정(`WText(기본서식)`),
+  `HasConditionalFormat` + CF 셀 WText 렌더로 수정. `Test_CS_CondFormatRender` green.
+  상세는 설계 문서 "P8이 발견한 별개 결함" 절 + `gap-probe-findings.md` P9.

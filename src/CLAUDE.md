@@ -95,7 +95,7 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 `modCache.GetColumnAsset(rng)`이 열 읽기의 단일 관문. 캐시 키는 `rng.Address(External:=True)`.
 
 - **지문 계약**: 신선도는 예측이 아니라 **관측**이다. `GetColumnAsset`이 매 접근에 `ComputeSignature`(값싼 prefix: Value2 벌크 + NumberFormatLocal, 렌더 없음)로 현재 지문을 계산해 캐시된 자산의 지문과 `Matches`로 대조하고, 불일치면 **조용히 재스캔**(지문 재사용해 Value2 재독 없음)한다. 파이프라인이 실행 시점마다 캐시를 통과하므로 "낡은 스냅샷으로 필터"는 구조적으로 불가능(`Test_Generation2`가 고정).
-- **정합성 최대 고정**(설계 근거: `docs/tasks/2026-07-09_cache_fingerprint_design.md`): 지문 = RowCount + ContentVec(Value2 배열 저장-비교, 충돌0) + 서식rep(균일=문자열/혼합=블록목록). 값·서식 변경을 전부 관측으로 잡는다. **이벤트/세대 없음** — 무효화를 미검증 이벤트 경로에 맡기지 않는다. CF는 우주 불변(P8 실측)이라 지문 대상 아님. 유일한 잔여는 modColumnScan의 `.Text` CF추종 렌더버그(P8 결론2, 후속 태스크).
+- **정합성 최대 고정**(설계 근거: `docs/tasks/2026-07-09_cache_fingerprint_design.md`): 지문 = RowCount + ContentVec(Value2 배열 저장-비교, 충돌0) + 서식rep(균일=문자열/혼합=블록목록). 값·서식 변경을 전부 관측으로 잡는다. **이벤트/세대 없음** — 무효화를 미검증 이벤트 경로에 맡기지 않는다. CF는 우주 불변(P8 실측)이라 지문 대상 아님. CF 열 렌더는 `.Text`(CF 추종) 대신 `WText(기본서식)`(P8 결론2/P9 수정 완료).
 - 스캔은 **주입 범위를 신뢰**한다(끝쪽 빈칸도 필터 대상 행). 범위 경계의 진실은 호출부 소유: ListObject는 DataBodyRange, AutoFilter는 AutoFilter.Range에서 헤더 제외.
 
 ### 값 지도(ValueMap) 계약

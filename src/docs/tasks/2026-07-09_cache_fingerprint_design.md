@@ -93,16 +93,18 @@ Signature = combine( RowCount,       ' 저장 Long 비교
 - ~~약한 백스톱 의존~~: **무관.** modFilterRun 자가검증은 이제 net이 아니라 순수 안전망 — 지문이
   이미 정합성을 닫으므로 백스톱이 약한 것이 문제되지 않는다.
 
-### P8이 발견한 별개 결함 — modColumnScan CF 렌더 (지문과 독립, 후속 수정)
-P8 결론 2: **`.Text`가 CF를 추종한다**(`5`->`5.00`). 스캔(`modColumnScan.RenderBlock`)은 표시키로
-`Range.Text`를 읽으므로, 숫자서식 CF가 걸린 열에서 스캔이 `5.00`을 저장하는데 AutoFilter는 `5`를
-매칭 → **xlFilterValues 0건 무음 필터 실패.** 이건 신선도(지문)가 아니라 **렌더 정합성** 문제라
-센티넬로 못 고친다(재스캔해도 같은 오키). 원칙상 닫아야 하는 실재 갭이나 **지문 작업과 독립**:
-- 범위: 스캔이 CF를 무시하고 기본서식으로 렌더해야 함. `.Text`(CF 추종)도 `DisplayFormat`(P8에서
-  CF 미반영, `G/표준` 반환)도 오라클 불가 → `WText(Value2, 기본fmtLocal)` 경로 필요하나 P4의
-  WText 13/61 불일치 계열(G/표준·`*`패딩·`[색]`·`@`·`!`) 주의. 별도 프로브/설계 필요.
-- 우선순위: 지문 착수와 병행 아님. 숫자서식 CF는 드물고(대다수 CF=채움/글꼴, `.Text` 불변) 현
-  엔진에도 이미 있는 잠복버그 → 지문 완료 후 독립 태스크로. (여기 기록만, 미착수.)
+### P8이 발견한 별개 결함 — modColumnScan CF 렌더 (수정 완료)
+P8 결론 2: **`.Text`가 CF를 추종한다**(`5`->`5.00`). 스캔이 표시키로 `Range.Text`를 읽으므로,
+숫자서식 CF가 걸린 열에서 스캔이 `5.00`을 저장하는데 AutoFilter는 `5`를 매칭 → xlFilterValues
+0건 무음 필터 실패. 신선도(지문)가 아니라 **렌더 정합성** 문제라 지문 작업과 독립.
+- **P9 실측으로 오라클 확정**(`gap-probe-findings.md` P9): `WText(Value2, 영문 기본서식)`이 CF 셀의
+  AutoFilter 매칭형(=CF 이전 `.Text`)을 모든 형식(General 포함)에서 재현. `DisplayFormat`은 CF
+  미반영이라 오라클 불가.
+- **수정 완료**(`modColumnScan`): `HasConditionalFormat` 1회 판정 → CF 있으면 숫자 셀을 `.Text` 대신
+  `WText(Value2, 기본서식)`로 렌더(General은 `"General"` 매핑, `!` 제거, 폭 독립이라 AutoFit 불요).
+  텍스트/에러·`*` 패딩은 무영향. `Test_CS_CondFormatRender`(#,##0+General under CF) green.
+- 잔여(극희소, 문서화된 한계): `[색]` 등 WText 빈문자열 기본서식 + 숫자서식 CF 동시 시 폴백 `.Text`
+  (CF형). 현행(모든 CF 숫자셀 오키) 대비 회귀 아님.
 
 ## 이벤트/세대 메커니즘 — 확정: 옵션 2 (이벤트 완전 제거)
 
