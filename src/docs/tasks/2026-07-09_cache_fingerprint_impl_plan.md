@@ -96,8 +96,12 @@ after:  GetColumnAsset -> sig = ComputeSignature(rng) -> cached.Signature.Matche
   5. `ContentVec` 원소별 `VarEq` 전부 통과?
 - `VarEq(a, b)`:
   - 둘 다 IsEmpty -> True; 한쪽만 Empty -> False.
-  - 한쪽이라도 IsError -> **False(강제 재스캔)**. (에러 Variant `=` 비교 예외 회피. 에러셀은
-    드물고 재스캔은 정합성 안전 — 문서화된 소소한 속도 한계.)
+  - ~~한쪽이라도 IsError -> **False(강제 재스캔)**~~ **[개정 2026-07-10]** 둘 다 IsError면
+    에러코드 대조(`ErrEq`, CStr 렌더 비교)로 일치 판정. 원래의 "에러셀은 드묾" 가정이
+    실데이터(지출 fixture, #N/A/#REF! 상존)에서 깨져 **열에 에러 1개면 캐시 영구 전멸**
+    (매 접근 전량 재스캔)이 실측됨 -> 코드 대조로 캐시 복원, 에러 종류 변경은 여전히 감지.
+    실측: 에러 주입 후 무변경 재접근 125ms(재스캔) -> 17.6ms(적중). `Test_Sig_ErrorCells`/
+    `Test_Sig_ErrorCellCacheHit` 고정.
   - `VarType(a) <> VarType(b)` -> False (숫자500 != 텍스트"500", 스캔 타입태그와 동일 규율).
   - 그 외 `a = b`.
 - 순서민감(행 스왑 시 불필요 재스캔 1회, 정합성 무해) — 단순성 위해 채택.

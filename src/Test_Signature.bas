@@ -1,6 +1,6 @@
 Attribute VB_Name = "Test_Signature"
 ' @desc clsColSig 대조 계약 + ComputeSignature 관측 단위테스트 담당
-' @depends modColumnScan, clsColSig, LogShim
+' @depends modColumnScan, modCache, clsColSig, clsColAsset, LogShim
 Option Explicit
 
 Private Const SHEET_NAME As String = "UF_SigTest"
@@ -81,9 +81,61 @@ Public Sub Test_Sig_Blocks()
     LogShim.AssertEq "sig_blocks_diff", False, s1.Matches(s3)
 End Sub
 
+' @desc 에러 셀은 에러코드 대조로 일치/불일치를 가리는지 검증함(캐시 전멸 방지)
+Public Sub Test_Sig_ErrorCells()
+    Dim s1 As clsColSig, s2 As clsColSig, s3 As clsColSig, s4 As clsColSig
+    ' 같은 에러(#N/A)를 같은 자리에: 일치해야 함 (구현 전 red - 무조건 재스캔이었음)
+    Set s1 = UniformSig(Vec3(CVErr(xlErrNA), CDbl(10), CDbl(15)), "General")
+    Set s2 = UniformSig(Vec3(CVErr(xlErrNA), CDbl(10), CDbl(15)), "General")
+    LogShim.AssertEq "sig_err_same", True, s1.Matches(s2)
+
+    ' 다른 에러(#REF!)로 바뀜: 변경 감지 유지
+    Set s3 = UniformSig(Vec3(CVErr(xlErrRef), CDbl(10), CDbl(15)), "General")
+    LogShim.AssertEq "sig_err_diffcode", False, s1.Matches(s3)
+
+    ' 에러 -> 값 / 에러 -> 빈칸: 불일치
+    Set s4 = UniformSig(Vec3(CDbl(5), CDbl(10), CDbl(15)), "General")
+    LogShim.AssertEq "sig_err_vs_value", False, s1.Matches(s4)
+    LogShim.AssertEq "sig_err_vs_empty", False, _
+        s1.Matches(UniformSig(Vec3(Empty, CDbl(10), CDbl(15)), "General"))
+End Sub
+
 ' ==========================================================================
 ' ComputeSignature 관측 (실 시트)
 ' ==========================================================================
+
+' @desc 에러 셀 포함 열이 무변경 재접근에서 캐시 적중하는지 검증함(실데이터 계약)
+Public Sub Test_Sig_ErrorCellCacheHit()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.Range("A1:A4").NumberFormat = "#,##0"
+    ws.Range("A1").Value = 1000
+    ws.Range("A2").Formula = "=NA()"          ' 실데이터 상존 에러 (#N/A)
+    ws.Range("A3").Value = 2000
+    ws.Range("A4").Value = 1000
+
+    ' 지문 안정: 무변경 재계산이 일치해야 함
+    Dim s1 As clsColSig, s2 As clsColSig
+    Set s1 = modColumnScan.ComputeSignature(ws.Range("A1:A4"))
+    Set s2 = modColumnScan.ComputeSignature(ws.Range("A1:A4"))
+    LogShim.AssertEq "sig_errcell_stable", True, s1.Matches(s2)
+
+    ' 캐시 계약: 무변경 재접근 = 동일 인스턴스 (에러 셀이 있어도)
+    modCache.ClearCache
+    Dim a1 As clsColAsset, a2 As clsColAsset
+    Set a1 = modCache.GetColumnAsset(ws.Range("A1:A4"))
+    Set a2 = modCache.GetColumnAsset(ws.Range("A1:A4"))
+    LogShim.AssertEq "sig_errcell_cachehit", True, (a2 Is a1)
+
+    ' 에러 종류 변경은 감지 (=NA() -> =1/0)
+    ws.Range("A2").Formula = "=1/0"
+    Dim a3 As clsColAsset
+    Set a3 = modCache.GetColumnAsset(ws.Range("A1:A4"))
+    LogShim.AssertEq "sig_errcell_change", False, (a3 Is a2)
+
+    modCache.ClearCache
+    DropSheet
+End Sub
 
 ' @desc 균일 열 지문 계산과 무변경 재계산 안정성을 검증함
 Public Sub Test_Sig_ComputeUniform()

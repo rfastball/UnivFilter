@@ -97,18 +97,31 @@ Private Function VecEqual(ByRef a As Variant, ByRef b As Variant) As Boolean
     VecEqual = True
 End Function
 
-' 셀 값 1쌍 대조: VarType 우선(숫자5 != 텍스트"5"), 에러셀은 강제 재스캔(안전측).
+' 셀 값 1쌍 대조: VarType 우선(숫자5 != 텍스트"5"), 에러셀은 에러코드끼리 대조.
 Private Function VarEq(ByRef a As Variant, ByRef b As Variant) As Boolean
     If IsEmpty(a) Then
         VarEq = IsEmpty(b)
         Exit Function
     End If
     If IsEmpty(b) Then Exit Function
-    ' 에러 Variant는 = 비교 시 예외 -> 무조건 불일치로 두어 재스캔(정합성 안전)
-    If IsError(a) Then Exit Function
+    ' 에러 Variant는 = 비교 시 예외 -> 에러코드 대조로 우회. 구현이 "무조건 불일치"였을 때
+    ' 에러 상존 실데이터에서 캐시가 전멸했다(2026-07-10 지출 fixture 실측: 영구 재스캔).
+    If IsError(a) Then
+        If IsError(b) Then VarEq = ErrEq(a, b)
+        Exit Function
+    End If
     If IsError(b) Then Exit Function
     If VarType(a) <> VarType(b) Then Exit Function
     VarEq = (a = b)
+End Function
+
+' 에러 변이체 1쌍의 에러코드 동일 여부(CStr "Error NNNN" 렌더 대조, 실패 시 안전측 False).
+Private Function ErrEq(ByRef a As Variant, ByRef b As Variant) As Boolean
+    On Error GoTo Fail
+    ErrEq = (CStr(a) = CStr(b))
+    Exit Function
+Fail:
+    ErrEq = False
 End Function
 
 ' 두 블록목록(Array(start,end,fmt))의 구조 동일 여부.
