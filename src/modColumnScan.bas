@@ -7,6 +7,12 @@ Option Explicit
 '  - 서식에 * 포함: TEXT(Value2, fmtLocal에서 ! 제거) 접힌형이 매칭 키
 '  - 그 외: Range.Text가 매칭 키. #-런(좁은 열)은 AutoFit 재독 후 폭 복원
 '  - 텍스트/에러/불리언 셀은 .Text 그대로, 빈칸은 키 없음(BlankCount)
+'
+' 성능 계약:
+'  - 균일 서식(NumberFormatLocal 비Null): Value2로 중복 제거해 고유값당 1회만
+'    렌더한다(.Text N회 -> U회). 열 카디널리티가 낮은 실사용 필터 열에서 결정적.
+'  - 혼합 서식: 같은 값도 셀마다 다르게 표시될 수 있어 셀별 렌더가 불가피(폴백).
+'  - 값 지도 값은 clsSet 대신 vbNullChar 연결 문자열 - 값당 객체 생성 비용 회피.
 
 ' @desc 열 범위 받아 표시/값 자산 반환, 빈 열이면 빈 자산 반환
 Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
@@ -31,33 +37,156 @@ Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
     Dim nRows As Long
     nRows = rTarget.Rows.Count
 
-    ' 벌크 읽기 (값/빈칸/타입 판별)
+    ' 벌크 읽기 (값/빈칸/타입 판별 - 단일 COM 호출)
     Dim v2 As Variant
     v2 = To2D(rTarget.Value2)
 
-    ' 표시 키 렌더
+    ' 균일/혼합 판정도 단일 COM 호출 (혼합이면 Null)
+    Dim vFmt As Variant
+    vFmt = rTarget.NumberFormatLocal
+
+    Dim blankCount As Long
+    If IsNull(vFmt) Then
+        blankCount = BuildMixed(rTarget, v2, nRows, displays, vm, rowByKey)
+    Else
+        blankCount = BuildUniform(rTarget, v2, nRows, CStr(vFmt), displays, vm, rowByKey)
+    End If
+
+    asset.Init displays, vm, rowByKey, blankCount, nRows, sID, lGeneration
+    Set BuildAsset = asset
+End Function
+
+' 균일 서식 고속 경로: Value2 중복 제거 후 고유값당 1회 렌더. 빈칸 수 반환.
+Private Function BuildUniform(ByVal rTarget As Range, ByVal v2 As Variant, _
+                              ByVal nRows As Long, ByVal fmt As String, _
+                              ByVal displays As clsSet, ByVal vm As Object, _
+                              ByVal rowByKey As Object) As Long
+    Dim isPad As Boolean
+    isPad = (InStr(fmt, "*") > 0)
+    Dim cleanFmt As String
+    cleanFmt = Replace(fmt, "!", "")
+
+    ' pass 1: 타입태그 + 값으로 중복 제거 (COM 무접촉, 에러 셀만 별도)
+    Dim uniqFirst As Object, uniqCnt As Object
+    Set uniqFirst = CreateObject("Scripting.Dictionary")
+    Set uniqCnt = CreateObject("Scripting.Dictionary")
+    Dim errRows As New Collection
+    Dim blankCount As Long
+
+    Dim i As Long, tag As String
+    For i = 1 To nRows
+        If IsEmpty(v2(i, 1)) Then
+            blankCount = blankCount + 1
+        ElseIf IsError(v2(i, 1)) Then
+            errRows.Add i
+        Else
+            ' 타입태그로 숫자 500과 텍스트 "500"의 값키 충돌 방지
+            tag = CStr(VarType(v2(i, 1))) & Chr$(1) & CStr(v2(i, 1))
+            If uniqCnt.exists(tag) Then
+                uniqCnt(tag) = uniqCnt(tag) + 1
+            Else
+                uniqFirst(tag) = i
+                uniqCnt(tag) = 1
+            End If
+        End If
+    Next i
+
+    ' pass 2: 고유값당 1회 렌더 (첫 등장 셀 .Text 또는 * 접힌형 TEXT)
+    Dim keyByTag As Object
+    Set keyByTag = CreateObject("Scripting.Dictionary")
+    Dim hashTags As New Collection
+    Dim vt As Variant, r As Long, val As Variant, key As String
+    For Each vt In uniqFirst.Keys
+        r = uniqFirst(vt)
+        val = v2(r, 1)
+        If VarType(val) = vbString Then
+            key = CStr(val)                      ' 텍스트 셀: 자기 자신, 렌더 불요
+        ElseIf isPad Then
+            key = SafeWText(val, cleanFmt)       ' * 패딩: 접힌형 TEXT
+            If Len(key) = 0 Then key = rTarget.Cells(r, 1).Text
+        Else
+            key = rTarget.Cells(r, 1).Text       ' 그 외: 실셀 .Text (충실)
+            If IsHashRun(key) Then hashTags.Add vt
+        End If
+        keyByTag(vt) = key
+    Next vt
+
+    ' ### 좁은 열: 1회 AutoFit 후 해당 고유값만 재독, 폭 복원
+    If hashTags.Count > 0 Then
+        Dim col As Range
+        Set col = rTarget.EntireColumn
+        Dim wPrev As Double
+        wPrev = col.ColumnWidth
+        On Error Resume Next
+        col.AutoFit
+        Dim h As Long
+        For h = 1 To hashTags.Count
+            keyByTag(hashTags(h)) = rTarget.Cells(uniqFirst(hashTags(h)), 1).Text
+        Next h
+        col.ColumnWidth = wPrev
+        On Error GoTo 0
+    End If
+
+    ' 누적: 고유값별 개수를 표시키에 합산(서로 다른 값이 같은 표시가 될 수 있음)
+    For Each vt In uniqFirst.Keys
+        key = keyByTag(vt)
+        rowByKey(key) = rowByKey(key) + uniqCnt(vt)
+        val = v2(uniqFirst(vt), 1)
+        If VarType(val) = vbDouble Then AppendVm vm, CStr(val), key
+    Next vt
+
+    ' 에러 셀(드묾): 개별 렌더
+    Dim e As Long
+    For e = 1 To errRows.Count
+        key = rTarget.Cells(errRows(e), 1).Text
+        rowByKey(key) = rowByKey(key) + 1
+    Next e
+
+    displays.LoadFromArray rowByKey.Keys
+    BuildUniform = blankCount
+End Function
+
+' 혼합 서식 폴백: 셀별 렌더(같은 값도 셀마다 표시가 다를 수 있음). 빈칸 수 반환.
+Private Function BuildMixed(ByVal rTarget As Range, ByVal v2 As Variant, _
+                           ByVal nRows As Long, ByVal displays As clsSet, _
+                           ByVal vm As Object, ByVal rowByKey As Object) As Long
     Dim keys() As String
     ReDim keys(1 To nRows)
-    RenderKeys rTarget, v2, keys, nRows
 
-    ' 집합/지도 구축.
-    ' 성능 계약: 행 루프의 늦은 바인딩 Dictionary 호출은 행당 최소로 유지한다
-    ' (행마다 clsSet을 꺼내 Add하면 10만 행에서 수초 - modPerfProbe로 계측된 병목).
-    ' (값,표시) 쌍은 복합키 대입 1회로 dedup하고 clsSet 조립은 고유 쌍에만 수행.
+    Dim i As Long, needHash As Boolean
+    Dim c As Range, f As String
+    For i = 1 To nRows
+        If IsEmpty(v2(i, 1)) Then
+            keys(i) = ""
+        ElseIf IsError(v2(i, 1)) Then
+            keys(i) = rTarget.Cells(i, 1).Text
+        Else
+            Set c = rTarget.Cells(i, 1)
+            f = SafeFmtLocal(c)
+            If InStr(f, "*") > 0 And VarType(v2(i, 1)) = vbDouble Then
+                keys(i) = SafeWText(v2(i, 1), Replace(f, "!", ""))
+                If Len(keys(i)) = 0 Then keys(i) = c.Text
+            Else
+                keys(i) = c.Text
+                If VarType(v2(i, 1)) = vbDouble And IsHashRun(keys(i)) Then needHash = True
+            End If
+        End If
+    Next i
+    If needHash Then FixHashKeys rTarget, keys, nRows
+
+    ' (값,표시) 쌍 복합키 1회 대입으로 dedup, 행수/빈칸 집계
     Dim pairSeen As Object
     Set pairSeen = CreateObject("Scripting.Dictionary")
     pairSeen.CompareMode = vbTextCompare
 
-    Dim i As Long, blankCount As Long
-    Dim k As String
+    Dim blankCount As Long, k As String
     For i = 1 To nRows
         If IsEmpty(v2(i, 1)) Then
             blankCount = blankCount + 1
         Else
             k = keys(i)
             If Len(k) > 0 Then
-                rowByKey(k) = rowByKey(k) + 1   ' 미존재 키는 Empty+1=1
-                ' 값 지도 재료: 숫자/날짜 셀만 (Value2는 이들을 Double로 반환)
+                rowByKey(k) = rowByKey(k) + 1
                 If VarType(v2(i, 1)) = vbDouble Then
                     pairSeen(CStr(v2(i, 1)) & vbNullChar & k) = Empty
                 End If
@@ -65,29 +194,27 @@ Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
         End If
     Next i
 
-
-    ' 표시 집합: 행수 지도의 키가 곧 고유 표시 키
     displays.LoadFromArray rowByKey.Keys
 
-    ' 값 지도: 고유 (값,표시) 쌍에서 vbNullChar 연결 문자열로 조립.
-    ' 성능 계약: 값마다 New clsSet 금지 - 내부 CreateObject가 개당 ~0.5ms라
-    ' 고유값 수천 개면 수초가 된다 (modPerfProbe로 계측된 병목).
     Dim vPair As Variant, p As Long, vk As String
     For Each vPair In pairSeen.Keys
         p = InStr(1, vPair, vbNullChar)
         vk = Left$(vPair, p - 1)
         k = Mid$(vPair, p + 1)
-        If vm.exists(vk) Then
-            vm(vk) = vm(vk) & vbNullChar & k
-        Else
-            vm(vk) = k
-        End If
+        AppendVm vm, vk, k
     Next vPair
 
-
-    asset.Init displays, vm, rowByKey, blankCount, nRows, sID, lGeneration
-    Set BuildAsset = asset
+    BuildMixed = blankCount
 End Function
+
+' 값 지도에 표시 키를 vbNullChar로 이어붙인다.
+Private Sub AppendVm(ByVal vm As Object, ByVal vk As String, ByVal key As String)
+    If vm.exists(vk) Then
+        vm(vk) = vm(vk) & vbNullChar & key
+    Else
+        vm(vk) = key
+    End If
+End Sub
 
 ' 주입 범위를 신뢰한다: 끝쪽 빈칸도 필터 대상 행이다.
 ' (true last row 방어는 범위를 만드는 호출부 소관 - modShortcuts.SetupFormData)
@@ -96,84 +223,7 @@ Private Function ResolveTarget(ByVal rngCol As Range) As Range
     Set ResolveTarget = rngCol.Columns(1)
 End Function
 
-' 셀별 표시 키를 실측 규칙대로 렌더링한다.
-Private Sub RenderKeys(ByVal rTarget As Range, ByVal v2 As Variant, _
-                       ByRef keys() As String, ByVal nRows As Long)
-    Dim vFmt As Variant
-    vFmt = rTarget.NumberFormatLocal   ' 혼합 서식이면 Null
-
-    Dim i As Long
-    Dim uniform As Boolean
-    uniform = Not IsNull(vFmt)
-
-    ' 주의: VBA And는 단락평가가 없으므로 Null 가드를 먼저 편다
-    Dim padUniform As Boolean
-    If uniform Then padUniform = (InStr(CStr(vFmt), "*") > 0)
-
-    If padUniform Then
-        ' 균일 * 패딩 서식: 고유값당 접힌형 TEXT 1회 (P6 확정 규칙)
-        Dim cleanFmt As String
-        cleanFmt = Replace(CStr(vFmt), "!", "")
-        Dim rendered As Object
-        Set rendered = CreateObject("Scripting.Dictionary")
-
-        For i = 1 To nRows
-            If IsEmpty(v2(i, 1)) Then
-                keys(i) = ""
-            ElseIf IsError(v2(i, 1)) Then
-                keys(i) = rTarget.Cells(i, 1).Text
-            Else
-                Dim ck As String
-                ck = CStr(v2(i, 1))
-                If Not rendered.exists(ck) Then
-                    rendered(ck) = SafeWText(v2(i, 1), cleanFmt)
-                End If
-                keys(i) = rendered(ck)
-                If Len(keys(i)) = 0 Then keys(i) = rTarget.Cells(i, 1).Text
-            End If
-        Next i
-    ElseIf uniform Then
-        ' 균일 일반 서식: 셀별 .Text (서식 재검사는 루프 밖에서 이미 끝남)
-        Dim needHashFix As Boolean
-        For i = 1 To nRows
-            If IsEmpty(v2(i, 1)) Then
-                keys(i) = ""
-            Else
-                keys(i) = rTarget.Cells(i, 1).Text
-                If VarType(v2(i, 1)) = vbDouble And IsHashRun(keys(i)) Then
-                    needHashFix = True
-                End If
-            End If
-        Next i
-        If needHashFix Then FixHashKeys rTarget, keys, nRows
-    Else
-        ' 혼합 서식: 셀별로 서식을 읽어 * 패딩 검사 (드문 경로)
-        Dim needHashFix2 As Boolean
-        For i = 1 To nRows
-            If IsEmpty(v2(i, 1)) Then
-                keys(i) = ""
-            Else
-                Dim c As Range
-                Set c = rTarget.Cells(i, 1)
-                Dim f As String
-                f = SafeFmtLocal(c)
-
-                If InStr(f, "*") > 0 And VarType(v2(i, 1)) = vbDouble Then
-                    keys(i) = SafeWText(v2(i, 1), Replace(f, "!", ""))
-                    If Len(keys(i)) = 0 Then keys(i) = c.Text
-                Else
-                    keys(i) = c.Text
-                    If VarType(v2(i, 1)) = vbDouble And IsHashRun(keys(i)) Then
-                        needHashFix2 = True
-                    End If
-                End If
-            End If
-        Next i
-        If needHashFix2 Then FixHashKeys rTarget, keys, nRows
-    End If
-End Sub
-
-' #-런 키를 AutoFit 재독으로 복구하고 열 폭을 복원한다.
+' #-런 키를 AutoFit 재독으로 복구하고 열 폭을 복원한다 (혼합 경로용).
 Private Sub FixHashKeys(ByVal rTarget As Range, ByRef keys() As String, ByVal nRows As Long)
     Dim col As Range
     Set col = rTarget.EntireColumn

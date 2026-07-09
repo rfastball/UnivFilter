@@ -16,6 +16,8 @@ Public Sub RunScanPerf()
     MeasureFormat "date", "yyyy-mm-dd", 50000
     MeasureFormat "text", "@", 50000
     MeasureFormat "acc_pad", "_-$* #,##0_-;-$* #,##0_-;_-$* ""-""_-;_-@_-", 50000
+    MeasureHighCardinality 100000
+    MeasureMixedFormat 50000
     MeasureRawOps 100000
 
 Done:
@@ -56,6 +58,63 @@ Private Sub MeasureFormat(ByVal tag As String, ByVal numFmt As String, ByVal nRo
     LogShim.LogEvent "perf_buildasset", _
         Array("fmt", "rows", "ms", "displays"), _
         Array(tag, nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
+End Sub
+
+' 고유값 100%(중복 없음) 균일 열: 중복제거 이득이 0인 최악 경우.
+Private Sub MeasureHighCardinality(ByVal nRows As Long)
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+
+    Dim arr() As Variant
+    ReDim arr(1 To nRows, 1 To 1)
+    Dim i As Long
+    For i = 1 To nRows
+        arr(i, 1) = i          ' 전부 고유
+    Next i
+    Dim rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(nRows, 1))
+    rng.NumberFormat = "#,##0"
+    rng.Value2 = arr
+
+    modCache.InvalidateCacheBySheet ws
+    Dim t0 As Single
+    t0 = Timer
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
+        Array("uniq100pct", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
+End Sub
+
+' 혼합 서식 열(행마다 다른 서식): 셀별 폴백의 실제 비용.
+Private Sub MeasureMixedFormat(ByVal nRows As Long)
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+
+    Dim arr() As Variant
+    ReDim arr(1 To nRows, 1 To 1)
+    Dim i As Long
+    For i = 1 To nRows
+        arr(i, 1) = (i Mod 5000) * 7
+    Next i
+    Dim rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(nRows, 1))
+    rng.Value2 = arr
+    ' 행마다 서식을 번갈아 -> NumberFormatLocal이 Null(혼합)
+    Dim blk As Long
+    For blk = 1 To nRows Step 2
+        ws.Cells(blk, 1).NumberFormat = "#,##0"
+    Next blk
+    For blk = 2 To nRows Step 2
+        ws.Cells(blk, 1).NumberFormat = "0"
+    Next blk
+
+    modCache.InvalidateCacheBySheet ws
+    Dim t0 As Single
+    t0 = Timer
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
+        Array("mixed_fmt", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
 End Sub
 
 ' 원시 연산별 단가를 잰다: 벌크 Value2 / 셀별 .Text / 셀별 fmtLocal / 고유값 TEXT.
