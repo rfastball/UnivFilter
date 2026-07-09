@@ -7,7 +7,7 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
-' @desc 열 표시키 집합/값 지도/세대 보관 담당
+' @desc 열 표시키 집합/값 지도/지문 보관 담당
 Option Explicit
 
 ' 표시 키 집합: AutoFilter가 실제로 매칭하는 문자열의 우주 (빈칸 제외)
@@ -20,19 +20,20 @@ Private mRowCountByKey As Object
 Private mBlankCount As Long
 Private mRowCount As Long
 Private mID As String
-Private mGeneration As Long
+' 취득 시점 지문. GetColumnAsset이 반환 전 현재 지문과 Matches로 대조(신선도 관측).
+Private mSignature As clsColSig
 
 ' @desc 스캔 산출물 주입받아 자산을 초기화함
 Public Sub Init(ByVal displaySet As clsSet, ByVal valueMap As Object, _
                 ByVal rowCountByKey As Object, ByVal lBlankCount As Long, _
-                ByVal lRowCount As Long, ByVal sID As String, ByVal lGeneration As Long)
+                ByVal lRowCount As Long, ByVal sID As String, ByVal sig As clsColSig)
     Set mDisplays = displaySet
     Set mValueMap = valueMap
     Set mRowCountByKey = rowCountByKey
     mBlankCount = lBlankCount
     mRowCount = lRowCount
     mID = sID
-    mGeneration = lGeneration
+    Set mSignature = sig
 End Sub
 
 Public Property Get Displays() As clsSet
@@ -63,8 +64,8 @@ Public Property Get ID() As String
     ID = mID
 End Property
 
-Public Property Get Generation() As Long
-    Generation = mGeneration
+Public Property Get Signature() As clsColSig
+    Set Signature = mSignature
 End Property
 
 ' @desc 표시 키 집합 받아 기대 가시 행수 반환, 미지 키는 0으로 집계

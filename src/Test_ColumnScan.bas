@@ -18,7 +18,7 @@ Public Sub Test_CS_UniformNumber()
     ' A4는 빈칸
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A4"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A4"), "T")
 
     LogShim.AssertEq "cs_num_displays", CLng(2), asset.Displays.Count
     LogShim.AssertEq "cs_num_has_comma", True, asset.Displays.Contains("1,000")
@@ -49,7 +49,7 @@ Public Sub Test_CS_Accounting()
     expZero = Application.WorksheetFunction.Text(0, cleanFmt)
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T")
 
     LogShim.AssertEq "cs_acc_collapsed_pos", True, asset.Displays.Contains(expPos)
     LogShim.AssertEq "cs_acc_collapsed_zero", True, asset.Displays.Contains(expZero)
@@ -69,7 +69,7 @@ Public Sub Test_CS_MixedFormats()
     ws.Range("A2").Value = 0.5
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T")
 
     LogShim.AssertEq "cs_mix_displays", CLng(2), asset.Displays.Count
     LogShim.AssertEq "cs_mix_050", True, asset.Displays.Contains("0.50")
@@ -89,7 +89,7 @@ Public Sub Test_CS_HashNarrow()
     ws.Columns("A").ColumnWidth = 2
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A1"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A1"), "T")
 
     LogShim.AssertEq "cs_hash_ideal", True, asset.Displays.Contains("9,876,543")
     LogShim.AssertEq "cs_hash_width_restored", CDbl(2), ws.Columns("A").ColumnWidth
@@ -122,7 +122,7 @@ Public Sub Test_CS_GeneralNarrow()
     LogShim.AssertEq "cs_gennar_premise", True, (narrowBig <> expBig)
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T")
 
     ' 좁은 열이어도 캐논형 키로 저장돼야 한다
     LogShim.AssertEq "cs_gennar_big", True, asset.Displays.Contains(expBig)
@@ -149,7 +149,7 @@ Public Sub Test_CS_DateAndText()
     ws.Range("A2").Value = "2024-01-03"
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T")
 
     LogShim.AssertEq "cs_date_one_key", CLng(1), asset.Displays.Count
     LogShim.AssertEq "cs_date_two_rows", CLng(2), CLng(asset.RowCountByKey("2024-01-03"))
@@ -175,7 +175,7 @@ Public Sub Test_CS_BlockMixed()
     ws.Range("A5").Value = DateSerial(2024, 1, 3)
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A5"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A5"), "T")
 
     ' 표시 키: "1,000"(블록1) / "2000"(블록2) / "2024-01-03"(블록3)
     LogShim.AssertEq "cs_block_displays", CLng(3), asset.Displays.Count
@@ -205,7 +205,7 @@ Public Sub Test_CS_DataUniformBlankPollution()
     ws.Range("A5").Value = 3000
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A5"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A5"), "T")
 
     ' 데이터 셀만 재판정하면 #,##0 균일 -> 올바른 표시 키
     LogShim.AssertEq "cs_pollute_displays", CLng(3), asset.Displays.Count
@@ -224,11 +224,11 @@ Public Sub Test_CS_ErrorAndEmpty()
     ws.Range("A1").Formula = "=NA()"
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A1"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A1"), "T")
     LogShim.AssertEq "cs_error_display", True, asset.Displays.Contains("#N/A")
 
     ' 빈 열: 주입 범위를 신뢰하므로 전 행이 빈칸으로 집계된다
-    Set asset = modColumnScan.BuildAsset(ws.Range("C1:C5"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("C1:C5"), "T")
     LogShim.AssertEq "cs_empty_rows", CLng(5), asset.RowCount
     LogShim.AssertEq "cs_empty_blanks", CLng(5), asset.BlankCount
     LogShim.AssertEq "cs_empty_displays", CLng(0), asset.Displays.Count

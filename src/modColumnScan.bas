@@ -59,8 +59,14 @@ Public Function ComputeSignature(ByVal rngCol As Range) As clsColSig
 End Function
 
 ' @desc 열 범위 받아 표시/값 자산 반환, 빈 열이면 빈 자산 반환
-Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
-                           ByVal lGeneration As Long) As clsColAsset
+Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String) As clsColAsset
+    Set BuildAsset = BuildAssetFromSig(rngCol, sID, ComputeSignature(rngCol))
+End Function
+
+' @desc 열 범위와 미리 계산된 지문 받아 자산 반환, 빈 열이면 빈 자산 반환
+' 지문이 이미 읽은 Value2/서식분할을 재사용한다(렌더만 수행, 추가 Value2 COM 없음).
+Public Function BuildAssetFromSig(ByVal rngCol As Range, ByVal sID As String, _
+                                  ByVal sig As clsColSig) As clsColAsset
     Dim displays As New clsSet
     Dim vm As Object
     Set vm = CreateObject("Scripting.Dictionary")
@@ -73,34 +79,38 @@ Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
     Set rTarget = ResolveTarget(rngCol)
 
     If rTarget Is Nothing Then
-        asset.Init displays, vm, rowByKey, 0, 0, sID, lGeneration
-        Set BuildAsset = asset
+        asset.Init displays, vm, rowByKey, 0, 0, sID, sig
+        Set BuildAssetFromSig = asset
         Exit Function
     End If
 
     Dim nRows As Long
     nRows = rTarget.Rows.Count
 
-    ' 벌크 읽기 (값/빈칸/타입 판별 - 단일 COM 호출)
+    ' 지문의 Value2 재사용 (COM 무접촉)
     Dim v2 As Variant
-    v2 = To2D(rTarget.Value2)
-
-    ' 균일/혼합 판정도 단일 COM 호출 (혼합이면 Null)
-    Dim vFmt As Variant
-    vFmt = rTarget.NumberFormatLocal
+    v2 = sig.ContentVec
 
     Dim blankCount As Long
-    If IsNull(vFmt) Then
-        blankCount = BuildMixed(rTarget, v2, nRows, vm, rowByKey)
+    Dim blk As Variant
+    If sig.IsPathological Then
+        ' 과편성 서식: 셀별 폴백 (지문은 항상 재스캔 센티넬)
+        blankCount = BuildPerCell(rTarget, v2, nRows, vm, rowByKey)
+    ElseIf sig.IsMixed Then
+        ' 혼합: 지문이 이미 찾은 블록 경계를 그대로 순회 (재분할 없음)
+        For Each blk In sig.Blocks
+            blankCount = blankCount + RenderBlock(rTarget, v2, _
+                CLng(blk(0)), CLng(blk(1)), CStr(blk(2)), vm, rowByKey)
+        Next blk
     Else
-        blankCount = RenderBlock(rTarget, v2, 1, nRows, CStr(vFmt), vm, rowByKey)
+        blankCount = RenderBlock(rTarget, v2, 1, nRows, sig.FmtUniform, vm, rowByKey)
     End If
 
     ' 표시 집합: 행수 지도의 키가 곧 고유 표시 키 (블록 누적 후 1회)
     displays.LoadFromArray rowByKey.Keys
 
-    asset.Init displays, vm, rowByKey, blankCount, nRows, sID, lGeneration
-    Set BuildAsset = asset
+    asset.Init displays, vm, rowByKey, blankCount, nRows, sID, sig
+    Set BuildAssetFromSig = asset
 End Function
 
 ' 균일 서식 블록 [firstRow,lastRow]를 중복제거 렌더해 vm/rowByKey에 누적. 빈칸 수 반환.
@@ -194,28 +204,6 @@ Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
     Next e
 
     RenderBlock = blankCount
-End Function
-
-' 혼합 서식: 이진 분할로 균일 블록을 찾아 블록별 고속 렌더. 빈칸 수 반환.
-Private Function BuildMixed(ByVal rTarget As Range, ByVal v2 As Variant, _
-                           ByVal nRows As Long, ByVal vm As Object, _
-                           ByVal rowByKey As Object) As Long
-    Dim blocks As New Collection
-    Dim budget As Long
-    budget = PARTITION_BUDGET
-
-    If TryPartition(rTarget, 1, nRows, blocks, budget) Then
-        Dim total As Long, blk As Variant
-        For Each blk In blocks
-            total = total + RenderBlock(rTarget, v2, blk(0), blk(1), CStr(blk(2)), vm, rowByKey)
-        Next blk
-        Log "BuildMixed: 블록 " & blocks.Count & "개로 분할 (프로브 " & _
-            (PARTITION_BUDGET - budget) & "회)", lvlInfo
-        BuildMixed = total
-    Else
-        Log "BuildMixed: 과편성 - 셀별 폴백", lvlWarning
-        BuildMixed = BuildPerCell(rTarget, v2, nRows, vm, rowByKey)
-    End If
 End Function
 
 ' [firstRow,lastRow]를 균일 블록 목록으로 이진 분할한다. 예산 초과 시 False.

@@ -127,7 +127,7 @@ Public Sub Test_AP_AccountingE2E()
     ws.Range("A3").Value = 5678
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A2:A3"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A2:A3"), "T")
 
     ' 사용자는 화면 요지("1,234")를 입력 -> 값 레인이 접힌 키로 브리지
     Dim r As Object
@@ -155,7 +155,7 @@ Public Sub Test_AP_DateE2E()
     ws.Range("A4").Value = DateSerial(2024, 1, 5)
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(ws.Range("A2:A4"), "T", 1)
+    Set asset = modColumnScan.BuildAsset(ws.Range("A2:A4"), "T")
 
     Dim r As Object
     Set r = modMatch.Execute(Array("2024-01-03"), asset, False)

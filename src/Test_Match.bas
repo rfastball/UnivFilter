@@ -110,7 +110,7 @@ Private Function BuildTestAsset() As clsColAsset
     rbk("Apple") = 1
 
     Dim asset As New clsColAsset
-    asset.Init displays, vm, rbk, 1, 5, "TEST!A1", 1
+    asset.Init displays, vm, rbk, 1, 5, "TEST!A1", Nothing
     Set BuildTestAsset = asset
 End Function
 

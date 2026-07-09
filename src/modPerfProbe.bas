@@ -57,7 +57,7 @@ Private Sub MeasureFormat(ByVal tag As String, ByVal numFmt As String, ByVal nRo
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    Set asset = modColumnScan.BuildAsset(rng, "PERF")
     LogShim.LogEvent "perf_buildasset", _
         Array("fmt", "rows", "ms", "displays"), _
         Array(tag, nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
@@ -83,7 +83,7 @@ Private Sub MeasureHighCardinality(ByVal nRows As Long)
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    Set asset = modColumnScan.BuildAsset(rng, "PERF")
     LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
         Array("uniq100pct", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
 End Sub
@@ -113,7 +113,7 @@ Private Sub MeasureBlockMixed(ByVal nRows As Long)
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    Set asset = modColumnScan.BuildAsset(rng, "PERF")
     LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
         Array("block_mixed3", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
 End Sub
@@ -145,7 +145,7 @@ Private Sub MeasureMixedFormat(ByVal nRows As Long)
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    Set asset = modColumnScan.BuildAsset(rng, "PERF")
     LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
         Array("mixed_fmt", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
 End Sub
@@ -167,7 +167,7 @@ Private Sub MeasureBlanksSameFmt(ByVal nRows As Long)
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    Set asset = modColumnScan.BuildAsset(rng, "PERF")
     LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
         Array("blank_samefmt", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
 End Sub
@@ -193,7 +193,7 @@ Private Sub MeasureBlanksDiffFmt(ByVal nRows As Long)
     Dim t0 As Single
     t0 = Timer
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    Set asset = modColumnScan.BuildAsset(rng, "PERF")
     LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
         Array("blank_difffmt", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
 End Sub

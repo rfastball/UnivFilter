@@ -1,6 +1,6 @@
 Attribute VB_Name = "modCache"
 ' @desc 열 자산 캐시와 시트 세대 관리 담당
-' @depends modColumnScan, clsColAsset, modLogger
+' @depends modColumnScan, clsColAsset, clsColSig, modLogger
 Option Explicit
 
 ' 캐시 항목: 키 = rng.Address(External:=True), 값 = clsColAsset (세대 스탬프 포함)
@@ -33,7 +33,7 @@ Public Function GetSheetGeneration(ByVal sPattern As String) As Long
     If d.exists(sPattern) Then GetSheetGeneration = d(sPattern)
 End Function
 
-' @desc 열 범위 받아 자산 반환, 캐시 미스나 세대 불일치 시 재스캔 후 반환
+' @desc 열 범위 받아 자산 반환, 캐시 미스나 지문 불일치 시 재스캔 후 반환
 Public Function GetColumnAsset(ByVal rngCol As Range) As clsColAsset
     If pColCache Is Nothing Then
         Set pColCache = CreateObject("Scripting.Dictionary")
@@ -42,24 +42,30 @@ Public Function GetColumnAsset(ByVal rngCol As Range) As clsColAsset
     Dim sKey As String
     sKey = rngCol.Address(External:=True)
 
-    Dim lGenNow As Long
-    lGenNow = GetSheetGeneration(PatternFromKey(sKey))
+    ' 신선도 = 관측: 현재 열의 지문을 계산해 캐시된 지문과 대조 (렌더 없는 값싼 prefix)
+    Dim sig As clsColSig
+    Set sig = modColumnScan.ComputeSignature(rngCol)
 
     If pColCache.exists(sKey) Then
         Dim cached As clsColAsset
         Set cached = pColCache(sKey)
-        If cached.Generation = lGenNow Then
+        Dim isFresh As Boolean
+        isFresh = False
+        If Not cached.Signature Is Nothing Then
+            isFresh = cached.Signature.Matches(sig)
+        End If
+        If isFresh Then
             Log "GetColumnAsset: [CACHE HIT] " & sKey, lvlInfo
             Set GetColumnAsset = cached
             Exit Function
         End If
-        ' 낡은 자산: 조용히 폐기하고 재스캔
+        ' 지문 불일치: 조용히 폐기하고 재스캔 (지문 재사용, Value2 재독 없음)
         pColCache.Remove sKey
         Log "GetColumnAsset: [STALE] 재스캔 " & sKey, lvlInfo
     End If
 
     Dim asset As clsColAsset
-    Set asset = modColumnScan.BuildAsset(rngCol, sKey, lGenNow)
+    Set asset = modColumnScan.BuildAssetFromSig(rngCol, sKey, sig)
     Set pColCache(sKey) = asset
     Log "GetColumnAsset: [MISS] 신규 스캔 등록 " & sKey, lvlInfo
     Set GetColumnAsset = asset
