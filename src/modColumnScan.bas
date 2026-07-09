@@ -1,6 +1,6 @@
 Attribute VB_Name = "modColumnScan"
 ' @desc 열 1회 스캔해 표시키/값지도 자산 구축 담당
-' @depends clsColAsset, clsSet, modLogger
+' @depends clsColAsset, clsColSig, clsSet, modLogger
 Option Explicit
 
 ' 표시 키 규칙 (실측: AutoFilterTest gap-probe-findings.md P4/P6/P7):
@@ -19,6 +19,44 @@ Option Explicit
 '  - 값 지도 값은 clsSet 대신 vbNullChar 연결 문자열 - 값당 객체 생성 비용 회피.
 
 Private Const PARTITION_BUDGET As Long = 2000
+
+' @desc 열 범위 받아 지문(Value2/서식 관측) 반환, 빈 열이면 균일 빈 지문
+' 스캔의 값싼 prefix: Value2 벌크 + NumberFormatLocal 1회(+혼합 시 TryPartition). 렌더/AutoFit 없음.
+Public Function ComputeSignature(ByVal rngCol As Range) As clsColSig
+    Dim sig As New clsColSig
+    Dim rTarget As Range
+    Set rTarget = ResolveTarget(rngCol)
+
+    If rTarget Is Nothing Then
+        sig.Init 0, Empty, False, "", Nothing, False
+        Set ComputeSignature = sig
+        Exit Function
+    End If
+
+    Dim nRows As Long
+    nRows = rTarget.Rows.Count
+
+    Dim v2 As Variant
+    v2 = To2D(rTarget.Value2)
+
+    Dim vFmt As Variant
+    vFmt = rTarget.NumberFormatLocal
+
+    If Not IsNull(vFmt) Then
+        sig.Init nRows, v2, False, CStr(vFmt), Nothing, False
+    Else
+        Dim blocks As New Collection
+        Dim budget As Long
+        budget = PARTITION_BUDGET
+        If TryPartition(rTarget, 1, nRows, blocks, budget) Then
+            sig.Init nRows, v2, True, "", blocks, False
+        Else
+            sig.Init nRows, v2, False, "", Nothing, True
+        End If
+    End If
+
+    Set ComputeSignature = sig
+End Function
 
 ' @desc 열 범위 받아 표시/값 자산 반환, 빈 열이면 빈 자산 반환
 Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
