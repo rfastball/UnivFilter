@@ -114,5 +114,6 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 
 ## 설계 문서
 
+- `docs/tasks/2026-07-09_cache_fingerprint_design.md` — 캐시 지문 재설계 관측기록 + 미결 결정 (진행중)
 - `docs/tasks/2026-07-09_engine_rebuild_plan.md` — 백지 재설계 승인 플랜 + 스테이지 기록
 - `docs/tasks/2026-07-07_internal_overhaul_plan.md` — (역사) 직전 세대 내부 개편 기록
