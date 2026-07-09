@@ -41,6 +41,11 @@ Public Sub UnivFilter_QuickHandler()
         End If
     End If
 
+    ' 퀵 모드는 폼이 없어 무표정 멈춤이 생길 수 있어 최초 저속 스캔을 사후 안내
+    If result("Ok") And Len(result("ScanNote")) > 0 Then
+        AutoCloseMsgBox_Popup result("ScanNote"), 3, "스캔 안내"
+    End If
+
     Unload frm
 End Sub
 

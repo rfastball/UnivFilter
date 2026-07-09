@@ -20,6 +20,8 @@ Public Sub Test_PL_IncludeBasic()
     LogShim.AssertEq "pl_inc_matched", CLng(1), CLng(r("MatchedCount"))
     LogShim.AssertEq "pl_inc_visible", CLng(1), modApply.CountVisibleRows(Area(ws))
     LogShim.AssertEq "pl_inc_selfcheck_quiet", "", CStr(r("SelfCheckNote"))
+    ' 소규모 열은 스캔이 빨라 안내 없음
+    LogShim.AssertEq "pl_inc_scannote_quiet", "", CStr(r("ScanNote"))
 
     DropSheet
 End Sub

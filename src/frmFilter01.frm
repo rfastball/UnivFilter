@@ -169,6 +169,9 @@ Private Sub btnApply_Click()
         If Len(result("SelfCheckNote")) > 0 Then
             AutoCloseMsgBox_Popup result("SelfCheckNote"), 3, "검증 경고"
         End If
+        If Len(result("ScanNote")) > 0 Then
+            AutoCloseMsgBox_Popup result("ScanNote"), 3, "스캔 안내"
+        End If
         If Len(result("CorrectionMessage")) > 0 Then
             AutoCloseMsgBox_Popup result("CorrectionMessage"), 2, "자동 보정"
         End If

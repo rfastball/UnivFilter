@@ -3,6 +3,9 @@ Attribute VB_Name = "modFilterRun"
 ' @depends modCache, modInputParse, modMatch, modApply, modReport, clsColAsset, clsSet, Utilities, modLogger
 Option Explicit
 
+' 최초 스캔이 이 값을 넘으면 사후 안내(ScanNote). 캐시 적중은 즉시라 미스만 걸린다.
+Private Const SCAN_SLOW_MS As Long = 800
+
 ' @desc 입력 받아 매칭-적용-리포트 실행 후 결과 딕셔너리 반환, 실패 시 Ok=False
 Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, _
                           ByVal lField As Long, ByVal sRawText As String, _
@@ -16,13 +19,25 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
     result("ErrMsg") = ""
     result("MatchedCount") = 0&
     result("SelfCheckNote") = ""
+    result("ScanNote") = ""
 
     On Error GoTo Fail
     Utilities.OptimizedMode True
 
     ' 1. 자산 취득 (캐시가 세대 검증과 재빌드를 내부에서 처리)
+    ' 최초 스캔 소요를 재서 느렸을 때만 사후에 원인(고유값 수)을 안내한다.
+    ' 캐시 적중은 즉시 반환되므로 임계값이 미스만 걸러낸다.
+    Dim tScan As Single
+    tScan = Timer
     Dim asset As clsColAsset
     Set asset = modCache.GetColumnAsset(rngBody)
+    Dim scanMs As Long
+    scanMs = CLng((Timer - tScan) * 1000!)
+    If scanMs > SCAN_SLOW_MS Then
+        result("ScanNote") = "최초 스캔에 " & Format$(scanMs / 1000#, "0.0") & _
+            "초 걸렸습니다(서로 다른 표시값 " & asset.Displays.Count & "개)." & vbCrLf & _
+            "이 열은 값 종류가 많아 느릴 수 있습니다. 이후에는 캐시되어 빨라집니다."
+    End If
 
     ' 2. 토큰화
     Dim tokens As Variant
