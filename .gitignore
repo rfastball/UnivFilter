@@ -10,6 +10,10 @@
 *.xlsb
 *.xlsm
 *.xlsx
+*.xlam
+
+# dist artifacts (built by vbaflow dist)
+dist/
 
 # test templates
 test_*/

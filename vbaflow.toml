@@ -7,3 +7,7 @@ visible = true
 
 [src]
 root = "src"
+
+[dist]
+version = "2.6.0"
+exclude = ["Test_*"]
