@@ -10,9 +10,14 @@ Option Explicit
 '
 ' 성능 계약:
 '  - 균일 서식(NumberFormatLocal 비Null): Value2로 중복 제거해 고유값당 1회만
-'    렌더한다(.Text N회 -> U회). 열 카디널리티가 낮은 실사용 필터 열에서 결정적.
-'  - 혼합 서식: 같은 값도 셀마다 다르게 표시될 수 있어 셀별 렌더가 불가피(폴백).
+'    렌더한다(.Text N회 -> U회). RenderBlock이 담당.
+'  - 혼합 서식: 실데이터는 셀별 랜덤이 아니라 '서식 블록'이다. NumberFormatLocal이
+'    혼합 범위에서 Null인 성질을 이진 분할로 재귀해 블록 경계만 찾고(O(블록수 x logN)
+'    프로브), 각 블록을 RenderBlock 고속 경로로 처리한다(TryPartition).
+'    병리적(셀마다 다름)이면 프로브 예산 초과 시 셀별 폴백(BuildPerCell).
 '  - 값 지도 값은 clsSet 대신 vbNullChar 연결 문자열 - 값당 객체 생성 비용 회피.
+
+Private Const PARTITION_BUDGET As Long = 2000
 
 ' @desc 열 범위 받아 표시/값 자산 반환, 빈 열이면 빈 자산 반환
 Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
@@ -47,20 +52,23 @@ Public Function BuildAsset(ByVal rngCol As Range, ByVal sID As String, _
 
     Dim blankCount As Long
     If IsNull(vFmt) Then
-        blankCount = BuildMixed(rTarget, v2, nRows, displays, vm, rowByKey)
+        blankCount = BuildMixed(rTarget, v2, nRows, vm, rowByKey)
     Else
-        blankCount = BuildUniform(rTarget, v2, nRows, CStr(vFmt), displays, vm, rowByKey)
+        blankCount = RenderBlock(rTarget, v2, 1, nRows, CStr(vFmt), vm, rowByKey)
     End If
+
+    ' 표시 집합: 행수 지도의 키가 곧 고유 표시 키 (블록 누적 후 1회)
+    displays.LoadFromArray rowByKey.Keys
 
     asset.Init displays, vm, rowByKey, blankCount, nRows, sID, lGeneration
     Set BuildAsset = asset
 End Function
 
-' 균일 서식 고속 경로: Value2 중복 제거 후 고유값당 1회 렌더. 빈칸 수 반환.
-Private Function BuildUniform(ByVal rTarget As Range, ByVal v2 As Variant, _
-                              ByVal nRows As Long, ByVal fmt As String, _
-                              ByVal displays As clsSet, ByVal vm As Object, _
-                              ByVal rowByKey As Object) As Long
+' 균일 서식 블록 [firstRow,lastRow]를 중복제거 렌더해 vm/rowByKey에 누적. 빈칸 수 반환.
+Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
+                            ByVal firstRow As Long, ByVal lastRow As Long, _
+                            ByVal fmt As String, ByVal vm As Object, _
+                            ByVal rowByKey As Object) As Long
     Dim isPad As Boolean
     isPad = (InStr(fmt, "*") > 0)
     Dim cleanFmt As String
@@ -74,7 +82,7 @@ Private Function BuildUniform(ByVal rTarget As Range, ByVal v2 As Variant, _
     Dim blankCount As Long
 
     Dim i As Long, tag As String
-    For i = 1 To nRows
+    For i = firstRow To lastRow
         If IsEmpty(v2(i, 1)) Then
             blankCount = blankCount + 1
         ElseIf IsError(v2(i, 1)) Then
@@ -142,14 +150,62 @@ Private Function BuildUniform(ByVal rTarget As Range, ByVal v2 As Variant, _
         rowByKey(key) = rowByKey(key) + 1
     Next e
 
-    displays.LoadFromArray rowByKey.Keys
-    BuildUniform = blankCount
+    RenderBlock = blankCount
 End Function
 
-' 혼합 서식 폴백: 셀별 렌더(같은 값도 셀마다 표시가 다를 수 있음). 빈칸 수 반환.
+' 혼합 서식: 이진 분할로 균일 블록을 찾아 블록별 고속 렌더. 빈칸 수 반환.
 Private Function BuildMixed(ByVal rTarget As Range, ByVal v2 As Variant, _
-                           ByVal nRows As Long, ByVal displays As clsSet, _
-                           ByVal vm As Object, ByVal rowByKey As Object) As Long
+                           ByVal nRows As Long, ByVal vm As Object, _
+                           ByVal rowByKey As Object) As Long
+    Dim blocks As New Collection
+    Dim budget As Long
+    budget = PARTITION_BUDGET
+
+    If TryPartition(rTarget, 1, nRows, blocks, budget) Then
+        Dim total As Long, blk As Variant
+        For Each blk In blocks
+            total = total + RenderBlock(rTarget, v2, blk(0), blk(1), CStr(blk(2)), vm, rowByKey)
+        Next blk
+        Log "BuildMixed: 블록 " & blocks.Count & "개로 분할 (프로브 " & _
+            (PARTITION_BUDGET - budget) & "회)", lvlInfo
+        BuildMixed = total
+    Else
+        Log "BuildMixed: 과편성 - 셀별 폴백", lvlWarning
+        BuildMixed = BuildPerCell(rTarget, v2, nRows, vm, rowByKey)
+    End If
+End Function
+
+' [firstRow,lastRow]를 균일 블록 목록으로 이진 분할한다. 예산 초과 시 False.
+Private Function TryPartition(ByVal rTarget As Range, ByVal firstRow As Long, _
+                             ByVal lastRow As Long, ByVal blocks As Collection, _
+                             ByRef budget As Long) As Boolean
+    If budget <= 0 Then Exit Function
+    budget = budget - 1
+
+    Dim sub_ As Range
+    Set sub_ = rTarget.Parent.Range(rTarget.Cells(firstRow, 1), rTarget.Cells(lastRow, 1))
+    Dim vFmt As Variant
+    vFmt = sub_.NumberFormatLocal
+
+    If Not IsNull(vFmt) Then
+        ' 균일(단일 셀 포함) - NumberFormatLocal은 단일 셀에서 항상 비Null
+        blocks.Add Array(firstRow, lastRow, CStr(vFmt))
+        TryPartition = True
+        Exit Function
+    End If
+
+    ' 혼합 - 중점 분할
+    Dim mid As Long
+    mid = (firstRow + lastRow) \ 2
+    If TryPartition(rTarget, firstRow, mid, blocks, budget) Then
+        TryPartition = TryPartition(rTarget, mid + 1, lastRow, blocks, budget)
+    End If
+End Function
+
+' 셀별 폴백(과편성 서식 전용): 같은 값도 셀마다 다르게 표시될 수 있어 셀별 렌더.
+Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
+                             ByVal nRows As Long, ByVal vm As Object, _
+                             ByVal rowByKey As Object) As Long
     Dim keys() As String
     ReDim keys(1 To nRows)
 
@@ -174,11 +230,6 @@ Private Function BuildMixed(ByVal rTarget As Range, ByVal v2 As Variant, _
     Next i
     If needHash Then FixHashKeys rTarget, keys, nRows
 
-    ' (값,표시) 쌍 복합키 1회 대입으로 dedup, 행수/빈칸 집계
-    Dim pairSeen As Object
-    Set pairSeen = CreateObject("Scripting.Dictionary")
-    pairSeen.CompareMode = vbTextCompare
-
     Dim blankCount As Long, k As String
     For i = 1 To nRows
         If IsEmpty(v2(i, 1)) Then
@@ -187,30 +238,20 @@ Private Function BuildMixed(ByVal rTarget As Range, ByVal v2 As Variant, _
             k = keys(i)
             If Len(k) > 0 Then
                 rowByKey(k) = rowByKey(k) + 1
-                If VarType(v2(i, 1)) = vbDouble Then
-                    pairSeen(CStr(v2(i, 1)) & vbNullChar & k) = Empty
-                End If
+                If VarType(v2(i, 1)) = vbDouble Then AppendVm vm, CStr(v2(i, 1)), k
             End If
         End If
     Next i
 
-    displays.LoadFromArray rowByKey.Keys
-
-    Dim vPair As Variant, p As Long, vk As String
-    For Each vPair In pairSeen.Keys
-        p = InStr(1, vPair, vbNullChar)
-        vk = Left$(vPair, p - 1)
-        k = Mid$(vPair, p + 1)
-        AppendVm vm, vk, k
-    Next vPair
-
-    BuildMixed = blankCount
+    BuildPerCell = blankCount
 End Function
 
-' 값 지도에 표시 키를 vbNullChar로 이어붙인다.
+' 값 지도에 표시 키를 vbNullChar로 이어붙인다(블록 간 중복 키 방지).
 Private Sub AppendVm(ByVal vm As Object, ByVal vk As String, ByVal key As String)
     If vm.exists(vk) Then
-        vm(vk) = vm(vk) & vbNullChar & key
+        If InStr(1, vbNullChar & vm(vk) & vbNullChar, vbNullChar & key & vbNullChar) = 0 Then
+            vm(vk) = vm(vk) & vbNullChar & key
+        End If
     Else
         vm(vk) = key
     End If
@@ -223,7 +264,7 @@ Private Function ResolveTarget(ByVal rngCol As Range) As Range
     Set ResolveTarget = rngCol.Columns(1)
 End Function
 
-' #-런 키를 AutoFit 재독으로 복구하고 열 폭을 복원한다 (혼합 경로용).
+' #-런 키를 AutoFit 재독으로 복구하고 열 폭을 복원한다 (셀별 폴백용).
 Private Sub FixHashKeys(ByVal rTarget As Range, ByRef keys() As String, ByVal nRows As Long)
     Dim col As Range
     Set col = rTarget.EntireColumn

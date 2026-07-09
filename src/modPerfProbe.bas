@@ -17,6 +17,7 @@ Public Sub RunScanPerf()
     MeasureFormat "text", "@", 50000
     MeasureFormat "acc_pad", "_-$* #,##0_-;-$* #,##0_-;_-$* ""-""_-;_-@_-", 50000
     MeasureHighCardinality 100000
+    MeasureBlockMixed 50000
     MeasureMixedFormat 50000
     MeasureRawOps 100000
 
@@ -85,7 +86,37 @@ Private Sub MeasureHighCardinality(ByVal nRows As Long)
         Array("uniq100pct", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
 End Sub
 
-' 혼합 서식 열(행마다 다른 서식): 셀별 폴백의 실제 비용.
+' 블록 구조 혼합 열(전반/후반 서로 다른 서식): 이진 분할 이득 측정.
+Private Sub MeasureBlockMixed(ByVal nRows As Long)
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+
+    Dim arr() As Variant
+    ReDim arr(1 To nRows, 1 To 1)
+    Dim i As Long
+    For i = 1 To nRows
+        arr(i, 1) = (i Mod 100) * 7   ' 블록당 저카디널리티(실사용 필터 열)
+    Next i
+    Dim rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(nRows, 1))
+    rng.Value2 = arr
+    ' 3개 블록: 전반 #,##0 / 중반 0 / 후반 $#,##0
+    Dim third As Long
+    third = nRows \ 3
+    ws.Range(ws.Cells(1, 1), ws.Cells(third, 1)).NumberFormat = "#,##0"
+    ws.Range(ws.Cells(third + 1, 1), ws.Cells(2 * third, 1)).NumberFormat = "0"
+    ws.Range(ws.Cells(2 * third + 1, 1), ws.Cells(nRows, 1)).NumberFormat = "$#,##0"
+
+    modCache.InvalidateCacheBySheet ws
+    Dim t0 As Single
+    t0 = Timer
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(rng, "PERF", 0)
+    LogShim.LogEvent "perf_buildasset", Array("fmt", "rows", "ms", "displays"), _
+        Array("block_mixed3", nRows, CLng((Timer - t0) * 1000!), asset.Displays.Count)
+End Sub
+
+' 혼합 서식 열(행마다 다른 서식): 셀별 폴백의 실제 비용(병리적 최악).
 Private Sub MeasureMixedFormat(ByVal nRows As Long)
     Dim ws As Worksheet
     Set ws = PrepSheet()

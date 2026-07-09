@@ -118,6 +118,38 @@ Public Sub Test_CS_DateAndText()
     DropSheet
 End Sub
 
+' @desc 블록 구조 혼합 서식 열의 이진 분할 정확성을 검증함
+Public Sub Test_CS_BlockMixed()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ' 3블록: A1:A2 #,##0(1000쌍) / A3:A4 0(2000쌍) / A5 yyyy-mm-dd(날짜)
+    ws.Range("A1:A2").NumberFormat = "#,##0"
+    ws.Range("A1").Value = 1000
+    ws.Range("A2").Value = 1000
+    ws.Range("A3:A4").NumberFormat = "0"
+    ws.Range("A3").Value = 2000
+    ws.Range("A4").Value = 2000
+    ws.Range("A5").NumberFormat = "yyyy-mm-dd"
+    ws.Range("A5").Value = DateSerial(2024, 1, 3)
+
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A5"), "T", 1)
+
+    ' 표시 키: "1,000"(블록1) / "2000"(블록2) / "2024-01-03"(블록3)
+    LogShim.AssertEq "cs_block_displays", CLng(3), asset.Displays.Count
+    LogShim.AssertEq "cs_block_comma", True, asset.Displays.Contains("1,000")
+    LogShim.AssertEq "cs_block_plain", True, asset.Displays.Contains("2000")
+    LogShim.AssertEq "cs_block_date", True, asset.Displays.Contains("2024-01-03")
+    ' 행수 누적: 블록1 2행, 블록2 2행
+    LogShim.AssertEq "cs_block_rows1", CLng(2), CLng(asset.RowCountByKey("1,000"))
+    LogShim.AssertEq "cs_block_rows2", CLng(2), CLng(asset.RowCountByKey("2000"))
+    ' 값 지도: 같은 값 1000/2000이 서로 다른 표시로 분리
+    LogShim.AssertEq "cs_block_vmap_1000", "1,000", CStr(asset.ValueMap(CStr(1000#)))
+    LogShim.AssertEq "cs_block_vmap_2000", "2000", CStr(asset.ValueMap(CStr(2000#)))
+
+    DropSheet
+End Sub
+
 ' @desc 에러 셀과 빈 열의 방어 동작을 검증함
 Public Sub Test_CS_ErrorAndEmpty()
     Dim ws As Worksheet
