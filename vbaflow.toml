@@ -2,7 +2,7 @@
 name = "UnivFIlter"
 
 [excel]
-workbook = "UnivFilter(v2.6).xlsm"
+workbook = "UnivFilter.xlsm"
 visible = true
 
 [src]

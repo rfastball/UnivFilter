@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`UnivFilter` — Excel VBA add-in that adds a custom Universal Filter (in-cell button + context menu + global shortcuts) to any ListObject/AutoFilter range. The shipping artifact is `../UnivFilter(v2.6).xlsm`; the files under `src/` are the source of truth for that workbook's modules.
+`UnivFilter` — Excel VBA add-in that adds a custom Universal Filter (in-cell button + context menu + global shortcuts) to any ListObject/AutoFilter range. The shipping artifact is `../UnivFilter.xlsm`; the files under `src/` are the source of truth for that workbook's modules.
 
 2026-07-09 엔진 백지 재설계 완료: 서식 예측/타입 판별 기반의 구 엔진을 걷어내고
 **표시 문자열 우주** 기반으로 재구축했다. 설계 근거는 전부 자매 프로젝트 실측이다.
