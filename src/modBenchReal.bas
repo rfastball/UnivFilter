@@ -1398,6 +1398,119 @@ Fail:
     Application.EnableEvents = prevEv
 End Sub
 
+' @desc 셀별 .Text 단가의 필터 이력 의존성을 상태별 전행 패스로 판별해 기록함
+' 방아쇠 후보 분리: 처녀 -> 반복 -> 필터중(숨김) -> 해제 직후 -> 반복 -> 수동 숨김/해제 -> 반복
+Public Sub ProbeTextDecay()
+    LogShim.Reset
+    Dim prevEv As Boolean
+    prevEv = Application.EnableEvents
+    Application.EnableEvents = False
+
+    On Error GoTo Fail
+    Dim wb As Workbook
+    Set wb = Workbooks.Open(FixturePath())
+    Utilities.OptimizedMode True
+
+    Dim ws As Worksheet
+    Set ws = wb.Sheets("T")
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    Dim area As Range, body As Range
+    Set area = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, 2))
+    Set body = ws.Range(ws.Cells(2, 1), ws.Cells(lastRow, 1))
+    Dim nRows As Long
+    nRows = lastRow - 1
+
+    Dim msA As Double, msB As Double, msC As Double, msD As Double
+    Dim msE As Double, msF As Double, msG As Double
+
+    ' A: 처녀 상태(방금 연 워크북, AutoFilter 없음) 전행 .Text
+    msA = TextPass(body, nRows)
+    ' B: 반복 (웜 확인)
+    msB = TextPass(body, nRows)
+
+    ' C: AutoFilter 조건 적용(전행 숨김) 상태에서 전행 .Text
+    area.AutoFilter
+    area.AutoFilter Field:=1, Criteria1:="=###UF_PROBE_NONE###"
+    msC = TextPass(body, nRows)
+
+    ' D: ShowAllData(해제) 직후 전행 .Text
+    On Error Resume Next
+    ws.ShowAllData
+    On Error GoTo Fail
+    msD = TextPass(body, nRows)
+    ' E: 반복
+    msE = TextPass(body, nRows)
+
+    ' F: AutoFilter 끄고 수동 행 숨김/해제 직후 전행 .Text
+    ws.AutoFilterMode = False
+    body.EntireRow.Hidden = True
+    body.EntireRow.Hidden = False
+    msF = TextPass(body, nRows)
+    ' G: 반복
+    msG = TextPass(body, nRows)
+
+    ' H/I: 저속 상태에서 위치 의존성 - 앞 2000셀 vs 뒤 2000셀
+    Dim msH As Double, msI As Double
+    Dim t0 As Single, i As Long, s As String
+    t0 = Timer
+    For i = 1 To 2000
+        s = body.Cells(i, 1).Text
+    Next i
+    msH = (Timer - t0) * 1000!
+    t0 = Timer
+    For i = nRows - 1999 To nRows
+        s = body.Cells(i, 1).Text
+    Next i
+    msI = (Timer - t0) * 1000!
+
+    ' K: 저장 -> 재오픈 후 전행 .Text (저속 상태가 파일에 지속되는지)
+    Dim sTmp As String
+    sTmp = Environ$("TEMP") & "\uf_textdecay_tmp.xlsx"
+    Dim prevAlerts As Boolean
+    prevAlerts = Application.DisplayAlerts
+    Application.DisplayAlerts = False
+    wb.SaveAs sTmp, FileFormat:=51
+    wb.Close SaveChanges:=False
+    Application.DisplayAlerts = prevAlerts
+    Set wb = Workbooks.Open(sTmp)
+    Set ws = wb.Sheets("T")
+    Set body = ws.Range(ws.Cells(2, 1), ws.Cells(lastRow, 1))
+    Dim msK As Double
+    msK = TextPass(body, nRows)
+
+    LogShim.LogEvent "textdecay", _
+        Array("rows", "A_freshMs", "B_repeatMs", "C_filteredMs", "D_unhideMs", _
+              "E_repeatMs", "F_manualUnhideMs", "G_repeatMs", _
+              "H_first2000Ms", "I_last2000Ms", "K_reopenMs"), _
+        Array(nRows, Format$(msA, "0.0"), Format$(msB, "0.0"), Format$(msC, "0.0"), _
+              Format$(msD, "0.0"), Format$(msE, "0.0"), Format$(msF, "0.0"), _
+              Format$(msG, "0.0"), Format$(msH, "0.0"), Format$(msI, "0.0"), _
+              Format$(msK, "0.0"))
+
+    Utilities.OptimizedMode False
+    wb.Close SaveChanges:=False
+    On Error Resume Next
+    Kill sTmp
+    On Error GoTo 0
+    Application.EnableEvents = prevEv
+    Exit Sub
+Fail:
+    Utilities.OptimizedMode False
+    LogShim.LogEvent "textdecay_err", Array("num", "desc"), Array(Err.Number, Err.Description)
+    Application.EnableEvents = prevEv
+End Sub
+
+' 전행 셀별 .Text 1패스 소요(ms)를 잰다.
+Private Function TextPass(ByVal body As Range, ByVal nRows As Long) As Double
+    Dim t0 As Single, i As Long, s As String
+    t0 = Timer
+    For i = 1 To nRows
+        s = body.Cells(i, 1).Text
+    Next i
+    TextPass = (Timer - t0) * 1000!
+End Function
+
 Private Sub BenchColumn(ByVal ws As Worksheet, ByVal col As Long, ByVal tag As String)
     Const REP As Long = 15
     Dim lastRow As Long
