@@ -26,7 +26,7 @@ Public Sub Test_G2_CacheHit()
     DropSheet
 End Sub
 
-' @desc 값 편집을 이벤트/무효화 없이 지문이 감지해 재스캔하는지 검증함
+' @desc 값 편집을 이벤트/무효화 없이 지문이 감지해 반영하는지 검증함(증분 패치)
 Public Sub Test_G2_StaleRebuild()
     Dim ws As Worksheet
     Set ws = PrepSheet()
@@ -36,15 +36,51 @@ Public Sub Test_G2_StaleRebuild()
     Set a1 = modCache.GetColumnAsset(ws.Range("A1:A1"))
     LogShim.AssertEq "g2_before_edit", True, a1.Displays.Contains("AA")
 
-    ' 시트 편집만 (수동 무효화 없음 - 지문이 관측으로 잡아야 한다)
+    ' 시트 편집만 (수동 무효화 없음 - 지문이 관측으로 잡아야 한다).
+    ' 값만 바뀌면 증분 패치가 같은 자산을 제자리 갱신한다 (불변식은 내용 신선도).
     ws.Range("A1").Value = "ZZ"
 
     Dim a2 As clsColAsset
     Set a2 = modCache.GetColumnAsset(ws.Range("A1:A1"))
 
-    LogShim.AssertEq "g2_rebuilt_new_object", False, (a1 Is a2)
+    LogShim.AssertEq "g2_patched_same_object", True, (a1 Is a2)
     LogShim.AssertEq "g2_rebuilt_content", True, a2.Displays.Contains("ZZ")
     LogShim.AssertEq "g2_rebuilt_old_gone", False, a2.Displays.Contains("AA")
+
+    DropSheet
+End Sub
+
+' @desc 값/빈칸 전이 편집이 증분 패치로 정확히 반영되는지 검증함(빈칸 델타/인덱스)
+Public Sub Test_G2_PatchTransitions()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.Range("A1:A4").NumberFormat = "#,##0"
+    ws.Range("A1").Value = 1000
+    ws.Range("A2").Value = 2000
+    ' A3은 빈칸
+    ws.Range("A4").Value = 1000
+
+    Dim a1 As clsColAsset
+    Set a1 = modCache.GetColumnAsset(ws.Range("A1:A4"))
+    LogShim.AssertEq "g2_patch_pre_blank", CLng(1), a1.BlankCount
+    LogShim.AssertEq "g2_patch_pre_rows1k", CLng(2), CLng(a1.RowCountByKey("1,000"))
+
+    ' 값->값(A1), 값->빈칸(A2), 빈칸->값(A3) 동시 편집
+    ws.Range("A1").Value = 3000
+    ws.Range("A2").ClearContents
+    ws.Range("A3").Value = 5000
+
+    Dim a2 As clsColAsset
+    Set a2 = modCache.GetColumnAsset(ws.Range("A1:A4"))
+
+    LogShim.AssertEq "g2_patch_same_object", True, (a1 Is a2)
+    LogShim.AssertEq "g2_patch_new_3k", True, a2.Displays.Contains("3,000")
+    LogShim.AssertEq "g2_patch_new_5k", True, a2.Displays.Contains("5,000")
+    LogShim.AssertEq "g2_patch_old_2k_gone", False, a2.Displays.Contains("2,000")
+    LogShim.AssertEq "g2_patch_kept_1k", True, a2.Displays.Contains("1,000")
+    LogShim.AssertEq "g2_patch_blank", CLng(1), a2.BlankCount
+    LogShim.AssertEq "g2_patch_rows1k", CLng(1), CLng(a2.RowCountByKey("1,000"))
+    LogShim.AssertEq "g2_patch_rowcount", CLng(4), a2.RowCount
 
     DropSheet
 End Sub
@@ -90,7 +126,7 @@ Public Sub Test_G2_PerColumnIsolation()
     Set ca2 = modCache.GetColumnAsset(ws.Range("A1:A1"))
     Set cb2 = modCache.GetColumnAsset(ws.Range("B1:B1"))
 
-    LogShim.AssertEq "g2_iso_a_rebuilt", False, (ca1 Is ca2)   ' 편집된 A는 재스캔
+    LogShim.AssertEq "g2_iso_a_fresh", True, ca2.Displays.Contains("ZZ")   ' 편집된 A는 갱신(패치)
     LogShim.AssertEq "g2_iso_b_hit", True, (cb1 Is cb2)        ' 무관한 B는 적중(스래싱 없음)
 
     DropSheet

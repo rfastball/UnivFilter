@@ -297,6 +297,92 @@ Public Function RenderValueKey(ByVal v As Double, ByVal fmt As String) As String
     End If
 End Function
 
+' @desc 캐시 자산과 새 지문 받아 변경 행만 재렌더해 패치 성공 여부 반환
+' 지문 불일치 중 값만 바뀐 경우(행수/서식 구조 동일)의 증분 경로 - 편집 후
+' 재스캔을 전량 재렌더 대신 변경 행 x 캐논 단건 렌더로 처리한다. 변경 행이
+' 상한(1,000)을 넘거나 행수/서식 변경/병리적이면 False - 호출부가 전량 재스캔.
+Public Function TryPatchAsset(ByVal asset As clsColAsset, ByVal rngCol As Range, _
+                              ByVal newSig As clsColSig) As Boolean
+    Const PATCH_MAX_ROWS As Long = 1000
+
+    If asset Is Nothing Then Exit Function
+    If Not asset.HasRendered Then Exit Function
+    If asset.Signature Is Nothing Then Exit Function
+    If newSig Is Nothing Then Exit Function
+
+    Dim changed As Collection
+    Set changed = asset.Signature.DiffRows(newSig, PATCH_MAX_ROWS)
+    If changed Is Nothing Then Exit Function
+
+    Dim rTarget As Range
+    Set rTarget = ResolveTarget(rngCol)
+    If rTarget Is Nothing Then Exit Function
+
+    Dim n As Long
+    n = changed.Count
+
+    Dim rowsArr() As Long, keysArr() As String
+    ReDim rowsArr(1 To n + 1)                    ' n=0 방어 (빈 배열 불가)
+    ReDim keysArr(1 To n + 1)
+
+    Dim blankDelta As Long
+    If n > 0 Then
+        Dim vNew As Variant, vOld As Variant
+        vNew = newSig.ContentVec
+        vOld = asset.Signature.ContentVec
+
+        Dim j As Long, r As Long, k As String
+        Dim val As Variant
+        For j = 1 To n
+            r = CLng(changed(j))
+            rowsArr(j) = r
+            val = vNew(r, 1)
+            ' 키 규칙은 벌크(RenderBlockBulk)와 동일한 캐논 단건판
+            If IsEmpty(val) Then
+                k = ""
+            ElseIf IsError(val) Then
+                k = ErrKey(val)
+                If Len(k) = 0 Then k = rTarget.Cells(r, 1).Text
+            ElseIf VarType(val) = vbString Then
+                k = CStr(val)
+            ElseIf VarType(val) = vbBoolean Then
+                If val Then k = "TRUE" Else k = "FALSE"
+            ElseIf VarType(val) = vbDouble Then
+                k = RenderValueKey(CDbl(val), BlockFmtForRow(newSig, r))
+                If Len(k) = 0 Then k = rTarget.Cells(r, 1).Text
+            Else
+                k = rTarget.Cells(r, 1).Text
+            End If
+            keysArr(j) = k
+
+            ' 빈칸 델타는 키가 아니라 값의 IsEmpty로 판정 ([색] 폴백 빈 키와 구분)
+            If IsEmpty(vOld(r, 1)) Then
+                If Not IsEmpty(val) Then blankDelta = blankDelta - 1
+            ElseIf IsEmpty(val) Then
+                blankDelta = blankDelta + 1
+            End If
+        Next j
+    End If
+
+    asset.PatchRendered rowsArr, keysArr, n, blankDelta, newSig
+    TryPatchAsset = True
+End Function
+
+' 지문에서 행이 속한 블록의 서식을 찾는다 (균일 열이면 균일 서식).
+Private Function BlockFmtForRow(ByVal sig As clsColSig, ByVal r As Long) As String
+    If Not sig.IsMixed Then
+        BlockFmtForRow = sig.FmtUniform
+        Exit Function
+    End If
+    Dim blk As Variant
+    For Each blk In sig.Blocks
+        If r >= CLng(blk(0)) And r <= CLng(blk(1)) Then
+            BlockFmtForRow = CStr(blk(2))
+            Exit Function
+        End If
+    Next blk
+End Function
+
 ' [firstRow,lastRow]를 균일 블록 목록으로 이진 분할한다. 예산 초과 시 False.
 Private Function TryPartition(ByVal rTarget As Range, ByVal firstRow As Long, _
                              ByVal lastRow As Long, ByVal blocks As Collection, _

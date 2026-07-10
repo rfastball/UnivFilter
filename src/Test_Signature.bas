@@ -127,11 +127,13 @@ Public Sub Test_Sig_ErrorCellCacheHit()
     Set a2 = modCache.GetColumnAsset(ws.Range("A1:A4"))
     LogShim.AssertEq "sig_errcell_cachehit", True, (a2 Is a1)
 
-    ' 에러 종류 변경은 감지 (=NA() -> =1/0)
+    ' 에러 종류 변경은 감지 (=NA() -> =1/0). 값만 바뀐 경우라 증분 패치가
+    ' 같은 자산을 제자리 갱신한다 - 불변식은 내용 신선도(캐논 에러 키 반영).
     ws.Range("A2").Formula = "=1/0"
     Dim a3 As clsColAsset
     Set a3 = modCache.GetColumnAsset(ws.Range("A1:A4"))
-    LogShim.AssertEq "sig_errcell_change", False, (a3 Is a2)
+    LogShim.AssertEq "sig_errcell_change_new", True, a3.Displays.Contains("#DIV/0!")
+    LogShim.AssertEq "sig_errcell_change_old", False, a3.Displays.Contains("#N/A")
 
     modCache.ClearCache
     DropSheet

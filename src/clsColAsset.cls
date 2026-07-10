@@ -63,6 +63,25 @@ Public Property Get HasRendered() As Boolean
     HasRendered = mHasRendered
 End Property
 
+' @desc 변경 행 렌더키를 제자리 갱신하고 지문 교체함, 지연 인덱스는 무효화
+' 증분 재렌더(modColumnScan.TryPatchAsset) 전용. 키는 (값, 서식)의 순수 함수라
+' (P11/P12) 무변경 행의 키 재사용은 관측의 재사용이다. InitRendered 자산 전용.
+Public Sub PatchRendered(ByRef rowsChanged() As Long, ByRef newKeys() As String, _
+                         ByVal n As Long, ByVal blankDelta As Long, _
+                         ByVal newSig As clsColSig)
+    Dim j As Long
+    For j = 1 To n
+        mRenderedVec(rowsChanged(j)) = newKeys(j)
+    Next j
+    mBlankCount = mBlankCount + blankDelta
+    Set mSignature = newSig
+    ' 지연 인덱스 무효화 - 다음 소비자 접근 시 RenderedVec에서 재구축
+    mIndexesBuilt = False
+    Set mDisplays = Nothing
+    Set mValueMap = Nothing
+    Set mRowCountByKey = Nothing
+End Sub
+
 ' @desc 행별 표시키 배열 반환(값 복사), InitRendered 자산에서만 유효
 Public Property Get RenderedVec() As String()
     RenderedVec = mRenderedVec

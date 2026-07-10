@@ -34,7 +34,14 @@ Public Function GetColumnAsset(ByVal rngCol As Range) As clsColAsset
             Set GetColumnAsset = cached
             Exit Function
         End If
-        ' 지문 불일치: 조용히 폐기하고 재스캔 (지문 재사용, Value2 재독 없음)
+        ' 지문 불일치: 값만 바뀐 경우 변경 행만 캐논 재렌더(증분 패치).
+        ' 키는 (값, 서식)의 순수 함수(P11/P12)라 무변경 행 재사용이 관측의 재사용이다.
+        If modColumnScan.TryPatchAsset(cached, rngCol, sig) Then
+            Log "GetColumnAsset: [PATCH] 증분 재렌더 " & sKey, lvlInfo
+            Set GetColumnAsset = cached
+            Exit Function
+        End If
+        ' 패치 불가(행수/서식 변경, 병리적, 변경 상한 초과): 조용히 폐기하고 재스캔
         pColCache.Remove sKey
         Log "GetColumnAsset: [STALE] 재스캔 " & sKey, lvlInfo
     End If

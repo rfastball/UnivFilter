@@ -59,6 +59,16 @@ End Property
 
 ' @desc 다른 지문 받아 우주 동일 여부 반환, 병리적/불일치 시 False
 Public Function Matches(ByVal other As clsColSig) As Boolean
+    If Not FormatMatches(other) Then Exit Function
+    Dim vOther As Variant
+    vOther = other.ContentVec
+    If Not VecEqual(mContentVec, vOther) Then Exit Function
+    Matches = True
+End Function
+
+' @desc 다른 지문과 행수/서식 구조 동일 여부 반환, 병리적이면 False
+' Matches의 값 대조 제외판 - 증분 패치 적격성(값만 바뀐 경우) 판정에 사용.
+Public Function FormatMatches(ByVal other As clsColSig) As Boolean
     If other Is Nothing Then Exit Function
     ' 병리적: 항상 재스캔 (자신 또는 상대)
     If mIsPathological Then Exit Function
@@ -70,10 +80,36 @@ Public Function Matches(ByVal other As clsColSig) As Boolean
     Else
         If mFmtUniform <> other.FmtUniform Then Exit Function
     End If
-    Dim vOther As Variant
-    vOther = other.ContentVec
-    If Not VecEqual(mContentVec, vOther) Then Exit Function
-    Matches = True
+    FormatMatches = True
+End Function
+
+' @desc 다른 지문과 값이 다른 행 번호 컬렉션 반환, 전제 불일치나 상한 초과 시 Nothing
+' 전제 = FormatMatches(행수/서식 구조 동일). 증분 재렌더(modColumnScan.TryPatchAsset)
+' 전용 - 키는 (값, 서식)의 순수 함수(P11/P12)라 무변경 행의 키 재사용이 건전하다.
+Public Function DiffRows(ByVal other As clsColSig, ByVal maxRows As Long) As Collection
+    If Not FormatMatches(other) Then Exit Function
+    Dim vO As Variant
+    vO = other.ContentVec
+
+    Dim result As New Collection
+    If IsEmpty(mContentVec) Then
+        If IsEmpty(vO) Then Set DiffRows = result
+        Exit Function
+    End If
+    If IsEmpty(vO) Then Exit Function
+    If Not IsArray(mContentVec) Then Exit Function
+    If Not IsArray(vO) Then Exit Function
+    If LBound(mContentVec, 1) <> LBound(vO, 1) Then Exit Function
+    If UBound(mContentVec, 1) <> UBound(vO, 1) Then Exit Function
+
+    Dim i As Long
+    For i = LBound(mContentVec, 1) To UBound(mContentVec, 1)
+        If Not VarEq(mContentVec(i, 1), vO(i, 1)) Then
+            result.Add i
+            If result.Count > maxRows Then Exit Function   ' 상한 초과: 전량 재스캔이 유리
+        End If
+    Next i
+    Set DiffRows = result
 End Function
 
 ' 두 Value2 배열(또는 빈 열 Empty)의 원소별 동일 여부. 순서민감(스왑=불필요재스캔, 무해).
