@@ -1668,6 +1668,67 @@ Private Function OpPass(ByVal ws As Worksheet, ByVal rowFrom As Long, _
     OpPass = (Timer - t0) * 1000!
 End Function
 
+' @desc 인프로세스 렌더 단가 실측: VBA Format$/CStr vs 벌크 Evaluate(TEXT) 대조 기록함
+' (Evaluate 경로 자체의 우회 실익 판정용 - 91k 규모 인메모리 루프)
+Public Sub ProbeInprocRender()
+    LogShim.Reset
+    On Error GoTo Fail
+
+    Const N As Long = 91235
+    Dim vals() As Double
+    ReDim vals(1 To N)
+    Dim i As Long
+    For i = 1 To N
+        vals(i) = (i * 7919#) + (i Mod 100) / 100#   ' 고카디널 금액 모사
+    Next i
+
+    Dim t0 As Single, s As String
+
+    ' 1) VBA Format$ "#,##0" (인프로세스 - 우회 후보)
+    t0 = Timer
+    For i = 1 To N
+        s = Format$(vals(i), "#,##0")
+    Next i
+    Dim fmtMs As Double
+    fmtMs = (Timer - t0) * 1000!
+
+    ' 2) VBA CStr (General 근사 하한)
+    t0 = Timer
+    For i = 1 To N
+        s = CStr(vals(i))
+    Next i
+    Dim cstrMs As Double
+    cstrMs = (Timer - t0) * 1000!
+
+    ' 3) WorksheetFunction.Text 단건 루프 (COM 단건 대조군)
+    t0 = Timer
+    For i = 1 To 5000
+        s = Application.WorksheetFunction.Text(vals(i), "#,##0")
+    Next i
+    Dim wtMs As Double
+    wtMs = (Timer - t0) * 1000! * (CDbl(N) / 5000#)   ' N행 환산
+
+    ' 4) Format$ vs Excel TEXT 표본 대조 (동일성 아닌 참고 - 1000건)
+    Dim nMis As Long, sample As String
+    Dim wt As String
+    For i = 1 To 1000
+        s = Format$(vals(i * 91), "#,##0")
+        wt = Application.WorksheetFunction.Text(vals(i * 91), "#,##0")
+        If s <> wt Then
+            nMis = nMis + 1
+            If nMis <= 3 Then sample = sample & "[" & s & "/" & wt & "]"
+        End If
+    Next i
+
+    LogShim.LogEvent "inproc", _
+        Array("n", "vbaFormatMs", "cstrMs", "wtextEquivMs", "mis1000", "misSample"), _
+        Array(N, Format$(fmtMs, "0.0"), Format$(cstrMs, "0.0"), _
+              Format$(wtMs, "0.0"), nMis, sample)
+    Exit Sub
+Fail:
+    LogShim.LogEvent "inproc_err", Array("num", "desc"), Array(Err.Number, Err.Description)
+End Sub
+
 ' 전행 셀별 .Text 1패스 소요(ms)를 잰다.
 Private Function TextPass(ByVal body As Range, ByVal nRows As Long) As Double
     Dim t0 As Single, i As Long, s As String
