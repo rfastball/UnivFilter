@@ -9,19 +9,21 @@ Option Explicit
 '    #-런(고정서식은 #####로 잘림) + General 전체(과학표기/반올림으로 잘림, # 없음, P7)
 '  - 텍스트/에러/불리언 셀은 .Text 그대로, 빈칸은 키 없음(BlankCount)
 '
-' 성능 계약:
-'  - 균일 서식(NumberFormatLocal 비Null): Value2로 중복 제거해 고유값당 1회만
-'    렌더한다(.Text N회 -> U회). RenderBlock이 담당.
+' 성능 계약 (지연 우주 - docs/tasks/2026-07-10_lazy_universe_design.md):
+'  - 균일/혼합 블록: 블록별 Evaluate(TEXT) 1회 벌크 렌더(RenderBlockBulk)로 행별
+'    표시키 배열(RenderedVec)을 생산한다. 실측 91,235행 = COM 1회 113ms.
+'    집합/지도 인덱스는 자산(clsColAsset)이 소비자 최초 접근 시 지연 구축.
 '  - 혼합 서식: 실데이터는 셀별 랜덤이 아니라 '서식 블록'이다. NumberFormatLocal이
-'    혼합 범위에서 Null인 성질을 이진 분할로 재귀해 블록 경계만 찾고(O(블록수 x logN)
-'    프로브), 각 블록을 RenderBlock 고속 경로로 처리한다(TryPartition).
-'    병리적(셀마다 다름)이면 프로브 예산 초과 시 셀별 폴백(BuildPerCell).
+'    혼합 범위에서 Null인 성질을 이진 분할로 재귀해 블록 경계만 찾는다(TryPartition,
+'    O(블록수 x logN) 프로브 - 지문 계산이 수행).
+'  - 병리적(셀마다 다른 서식, 예산 초과) 또는 벌크 실패(희소): 셀별 렌더 폴백
+'    (BuildPerCell)이 즉시 인덱스 자산을 구축한다.
 '  - 값 지도 값은 clsSet 대신 vbNullChar 연결 문자열 - 값당 객체 생성 비용 회피.
 
 Private Const PARTITION_BUDGET As Long = 2000
 
-' 테스트 훅: True면 벌크 렌더를 건너뛰고 레거시 고유값 렌더 경로를 강제한다.
-' (Test_CS_BulkRenderEquiv가 레거시/벌크 두 경로를 대조하는 용도 - 실사용 코드 사용 금지)
+' 테스트 훅: True면 벌크 렌더를 건너뛰고 셀별 렌더(BuildPerCell) 오라클을 강제한다.
+' (Test_CS_BulkRenderEquiv가 벌크와 셀별 오라클을 대조하는 용도 - 실사용 코드 사용 금지)
 Public G_ForceLegacyRender As Boolean
 
 ' @desc 열 범위 받아 지문(Value2/서식 관측) 반환, 빈 열이면 균일 빈 지문
@@ -124,136 +126,29 @@ Public Function BuildAssetFromSig(ByVal rngCol As Range, ByVal sID As String, _
         blankCount = 0                       ' 폴백: 레거시 경로가 다시 계수
     End If
 
-    ' 조건부서식(CF) 유무 1회 판정(O(1)): CF 있으면 숫자 셀은 .Text(CF 추종) 대신
+    ' 셀별 렌더 경로: 병리적 서식 / 벌크 실패 / 테스트 훅.
+    ' CF 유무 1회 판정(O(1)): CF 있으면 숫자 셀은 .Text(CF 추종) 대신
     ' 기본서식 WText로 렌더한다 (P9: AutoFilter는 CF 아닌 기본서식 캐논형만 매칭).
     Dim hasCF As Boolean
     hasCF = HasConditionalFormat(rTarget)
+    blankCount = BuildPerCell(rTarget, v2, nRows, vm, rowByKey, hasCF)
 
-    If sig.IsPathological Then
-        ' 과편성 서식: 셀별 폴백 (지문은 항상 재스캔 센티넬)
-        blankCount = BuildPerCell(rTarget, v2, nRows, vm, rowByKey, hasCF)
-    ElseIf sig.IsMixed Then
-        ' 혼합: 지문이 이미 찾은 블록 경계를 그대로 순회 (재분할 없음)
-        For Each blk In sig.Blocks
-            blankCount = blankCount + RenderBlock(rTarget, v2, _
-                CLng(blk(0)), CLng(blk(1)), CStr(blk(2)), vm, rowByKey, hasCF)
-        Next blk
-    Else
-        blankCount = RenderBlock(rTarget, v2, 1, nRows, sig.FmtUniform, vm, rowByKey, hasCF)
-    End If
-
-    ' 표시 집합: 행수 지도의 키가 곧 고유 표시 키 (블록 누적 후 1회)
+    ' 표시 집합: 행수 지도의 키가 곧 고유 표시 키
     displays.LoadFromArray rowByKey.Keys
 
     asset.Init displays, vm, rowByKey, blankCount, nRows, sID, sig
     Set BuildAssetFromSig = asset
 End Function
 
-' 균일 서식 블록 [firstRow,lastRow]를 중복제거 렌더해 vm/rowByKey에 누적. 빈칸 수 반환.
-Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
-                            ByVal firstRow As Long, ByVal lastRow As Long, _
-                            ByVal fmt As String, ByVal vm As Object, _
-                            ByVal rowByKey As Object, ByVal hasCF As Boolean) As Long
-    Dim isPad As Boolean
-    isPad = (InStr(fmt, "*") > 0)
-    ' General은 좁으면 과학표기/반올림으로 잘린다(#-런 아님). 캐논형 확보 위해 AutoFit 재독 강제.
-    Dim isGeneral As Boolean
-    isGeneral = IsGeneralFmt(fmt)
-    Dim cleanFmt As String
-    cleanFmt = Replace(fmt, "!", "")
-
-    ' pass 1: 타입태그 + 값으로 중복 제거 (COM 무접촉, 에러 셀만 별도)
-    Dim uniqFirst As Object, uniqCnt As Object
-    Set uniqFirst = CreateObject("Scripting.Dictionary")
-    Set uniqCnt = CreateObject("Scripting.Dictionary")
-    Dim errRows As New Collection
-    Dim blankCount As Long
-
-    Dim i As Long, tag As String
-    For i = firstRow To lastRow
-        If IsEmpty(v2(i, 1)) Then
-            blankCount = blankCount + 1
-        ElseIf IsError(v2(i, 1)) Then
-            errRows.Add i
-        Else
-            ' 타입태그로 숫자 500과 텍스트 "500"의 값키 충돌 방지
-            tag = CStr(VarType(v2(i, 1))) & Chr$(1) & CStr(v2(i, 1))
-            If uniqCnt.exists(tag) Then
-                uniqCnt(tag) = uniqCnt(tag) + 1
-            Else
-                uniqFirst(tag) = i
-                uniqCnt(tag) = 1
-            End If
-        End If
-    Next i
-
-    ' pass 2: 고유값당 1회 렌더 (첫 등장 셀 .Text 또는 * 접힌형 TEXT)
-    Dim keyByTag As Object
-    Set keyByTag = CreateObject("Scripting.Dictionary")
-    Dim refitTags As New Collection
-    Dim vt As Variant, r As Long, val As Variant, key As String
-    For Each vt In uniqFirst.Keys
-        r = uniqFirst(vt)
-        val = v2(r, 1)
-        If VarType(val) = vbString Then
-            key = CStr(val)                      ' 텍스트 셀: 자기 자신, 렌더 불요
-        ElseIf isPad Then
-            key = SafeWText(val, cleanFmt)       ' * 패딩: 접힌형 TEXT (CF-안전)
-            If Len(key) = 0 Then key = rTarget.Cells(r, 1).Text
-        ElseIf hasCF And VarType(val) = vbDouble Then
-            ' CF 열의 숫자: .Text는 CF 추종하므로 기본서식 WText로 렌더(폭 독립, AutoFit 불요)
-            key = SafeWText(val, RenderFmt(fmt, cleanFmt, isGeneral))
-            If Len(key) = 0 Then key = rTarget.Cells(r, 1).Text   ' 잔여: WText 빈문자열 폴백
-        Else
-            key = rTarget.Cells(r, 1).Text       ' 그 외: 실셀 .Text (충실)
-            ' 폭에 잘린 형 방어: #-런(고정서식) + General 전체(과학표기/반올림)
-            If isGeneral Or IsHashRun(key) Then refitTags.Add vt
-        End If
-        keyByTag(vt) = key
-    Next vt
-
-    ' 폭에 잘린 고유값: 1회 AutoFit 후 해당 값만 캐논형으로 재독, 폭 복원
-    If refitTags.Count > 0 Then
-        Dim col As Range
-        Set col = rTarget.EntireColumn
-        Dim wPrev As Double
-        wPrev = col.ColumnWidth
-        On Error Resume Next
-        col.AutoFit
-        Dim h As Long
-        For h = 1 To refitTags.Count
-            keyByTag(refitTags(h)) = rTarget.Cells(uniqFirst(refitTags(h)), 1).Text
-        Next h
-        col.ColumnWidth = wPrev
-        On Error GoTo 0
-    End If
-
-    ' 누적: 고유값별 개수를 표시키에 합산(서로 다른 값이 같은 표시가 될 수 있음)
-    For Each vt In uniqFirst.Keys
-        key = keyByTag(vt)
-        rowByKey(key) = rowByKey(key) + uniqCnt(vt)
-        val = v2(uniqFirst(vt), 1)
-        If VarType(val) = vbDouble Then AppendVm vm, CStr(val), key
-    Next vt
-
-    ' 에러 셀(드묾): 개별 렌더
-    Dim e As Long
-    For e = 1 To errRows.Count
-        key = rTarget.Cells(errRows(e), 1).Text
-        rowByKey(key) = rowByKey(key) + 1
-    Next e
-
-    RenderBlock = blankCount
-End Function
-
 ' @desc 균일 서식 블록을 Evaluate(TEXT) 1회로 벌크 렌더해 행별 표시키 배열 채움, 실패 시 False 반환
-' 지연 우주 재설계(docs/tasks/2026-07-10_lazy_universe_design.md) Stage A 경로.
+' 지연 우주(docs/tasks/2026-07-10_lazy_universe_design.md)의 기본 렌더 경로.
 ' keys(firstRow..lastRow)에 표시키를 채운다(빈칸은 "" + blankCount 가산).
-' 규칙은 RenderBlock과 동일 의미론: 텍스트 셀은 자기 자신, * 패딩은 접힌형 TEXT,
+' 표시 키 규칙(모듈 헤더)의 벌크판: 텍스트 셀은 자기 자신, * 패딩은 접힌형 TEXT,
 ' General은 영문 "General" 매핑, ! 제거. CF 무관(TEXT는 기본서식 캐논형 - P9).
 ' 폭 무관(P7 캐논형)이라 AutoFit 재독 자체가 없다. 실측 91,235행 COM 1회 = 113ms.
 ' 에러 셀(TEXT가 에러 전파)/[색] 등 TEXT 빈문자열/불리언/@서식 숫자 셀만 셀별 .Text 폴백.
-' False 반환(Evaluate 실패/수식 255자 초과) 시 호출부가 RenderBlock으로 폴백한다.
+' False 반환(Evaluate 실패/수식 255자 초과) 시 호출부가 셀별 렌더(BuildPerCell)로 폴백.
+' 정합 게이트: Test_CS_BulkRenderEquiv가 셀별 오라클과 전수 동치를 고정.
 Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
                                ByVal firstRow As Long, ByVal lastRow As Long, _
                                ByVal fmt As String, ByRef keys() As String, _

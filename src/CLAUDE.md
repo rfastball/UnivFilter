@@ -38,16 +38,25 @@ AutoFilterTest 프로젝트가 측정한 사실이 이 엔진의 존재 이유�
 
 ## Architecture
 
-### 지배 원리
+### 지배 원리 (지연 우주 - docs/tasks/2026-07-10_lazy_universe_design.md)
 
 ```
-universe  = 열의 표시 키 집합 (modColumnScan이 읽는다 - 재구성이 아니라 관측)
-matched   = 표시레인(토큰 그대로) UNION 값레인(파싱값 -> 값지도 -> 표시 키)
+universe  = 열의 행별 렌더키 배열 RenderedVec (modColumnScan이 블록별 Evaluate(TEXT)
+            1회로 관측 - 91k행 113ms, 폭/CF 무관 캐논형)
+집합/지도 = 우주가 아니라 우주에 대한 '지연 인덱스' - 요구하는 소비자(제외/부분일치)가
+            최초 접근할 때 1회 구축(고카디널 ~180ms), 자산에 캐시
+matched   = 표시레인(토큰 멤버십 스캔, 행계수 부산물) UNION
+            값레인(파싱값 -> 블록서식 RenderValueKey 후보키 -> 멤버십)
 적용      = xlFilterValues(matched)            [포함]
           = xlFilterValues(universe - matched) [제외, clsSet.Difference + 빈칸 "="]
 missing   = 양 레인 0건 토큰 (팝업 + 클립보드)
 corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정 리포트)
 ```
+
+실측(지출 fixture 91k행/고유 47k): 퀵 콜드 1,006 -> **195ms**, 웜 98ms(매칭 7.8ms),
+부분일치 콜드 1,186 -> 801ms. 제외는 여집합 배열 유지 - **P10 실측으로 `"<>"` 스칼라
+기각**(부등호는 값 강제 의미론: 표시쌍둥이 과소/값쌍둥이 과잉 제외, 회계 접힌형 매칭
+불가). 고카디널 제외 ~4.4s(apply 지배)는 문서화된 한계.
 
 ### Two entry paths share one pipeline
 
@@ -76,12 +85,12 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 |---|---|
 | `modFilterRun` | 파이프라인 오케스트레이션 (폼/퀵 공용 진입점, 자가검증 포함) |
 | `modInputParse` | 토큰화(개행/탭, 콤마는 구분자 아님) + 값 후보 해석(통화/괄호음수/%/날짜) |
-| `modMatch` | 2레인 매칭: 표시 exact/부분(InStr 스캔), 값 브리지, 누락/보정 분류 |
-| `modColumnScan` | 열 1회 스캔: 표시 키 규칙 적용, 값지도/행수지도/빈칸 집계. `ComputeSignature`(값싼 prefix)/`BuildAssetFromSig`(suffix) 분할 |
+| `modMatch` | 2레인 매칭: 완전일치는 렌더키 멤버십 스캔(행계수 부산물), 값 브리지는 RenderValueKey 후보키, 부분일치는 지연 인덱스 InStr |
+| `modColumnScan` | 열 1회 스캔: 블록별 벌크 Evaluate(TEXT)로 렌더키 배열 생산. `ComputeSignature`(값싼 prefix)/`BuildAssetFromSig`(suffix) 분할, 병리적/벌크실패는 셀별 폴백 |
 | `modApply` | xlFilterValues 단일 Tier 적용, 255자 특례, 전체숨김/필드해제, 가시행 계수 |
 | `modReport` | 상태/누락/보정/경고 메시지 구성 + 누락 클립보드 복사 |
 | `modCache` | 자산 캐시 + 지문 신선도 관측. 불일치면 **투명 재스캔** (이벤트/세대 없음) |
-| `clsColAsset` | Displays(clsSet) + ValueMap + RowCountByKey + BlankCount + 지문 스탬프 |
+| `clsColAsset` | RenderedVec(행별 렌더키) + 지연 인덱스(Displays/ValueMap/RowCountByKey) + BlankCount + 지문 스탬프 + 멤버십 스캔 프리미티브(ScanOne/ScanCount) |
 | `clsColSig` | 열 지문: RowCount + ContentVec(Value2 배열) + 서식rep. `Matches` 저장-비교(충돌0) |
 | `frmFilter01` | UI 전용: Range 주입받아 RunFilter 위임, 결과 팝업 |
 | `modUnivFilter` | 버튼/메뉴/폼 위치(DPI), 전역 상태 G_LastExcludeMode/G_LastStackMode/G_OpenForms |
@@ -98,10 +107,16 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 - **정합성 최대 고정**(설계 근거: `docs/tasks/2026-07-09_cache_fingerprint_design.md`): 지문 = RowCount + ContentVec(Value2 배열 저장-비교, 충돌0) + 서식rep(균일=문자열/혼합=블록목록). 값·서식 변경을 전부 관측으로 잡는다. **이벤트/세대 없음** — 무효화를 미검증 이벤트 경로에 맡기지 않는다. CF는 우주 불변(P8 실측)이라 지문 대상 아님. CF 열 렌더는 `.Text`(CF 추종) 대신 `WText(기본서식)`(P8 결론2/P9 수정 완료).
 - 스캔은 **주입 범위를 신뢰**한다(끝쪽 빈칸도 필터 대상 행). 범위 경계의 진실은 호출부 소유: ListObject는 DataBodyRange, AutoFilter는 AutoFilter.Range에서 헤더 제외.
 
-### 값 지도(ValueMap) 계약
+### 값 레인 계약
 
-키 = `CStr(Value2)` (숫자/날짜 셀만 - Value2가 Double인 셀). 값 = 그 값을 렌더링하는 표시 키들의 clsSet.
-입력 파싱(`modInputParse.TryParseValues`)도 같은 `CStr(Double)` 키로 조회 → 같은 값의 표시 쌍둥이 전부가 매칭에 합류(FACT 3 의미론을 비교연산자 없이 구현). 마지막 비트가 다른 계산값은 범위 밖(문서화된 한계).
+- **스캔 경로**(RenderedVec 자산, 완전일치): 입력 파싱값 v(`modInputParse.TryParseValues`)에
+  대해 각 블록 서식 f로 `RenderValueKey(v, f)` 후보키를 만들어 우주 멤버십으로 판정 —
+  "그 값이 이 서식 블록에 있었다면 어떤 표시키인가"의 재현이라 우주 구성과 대칭이다.
+- **인덱스 경로**(병리적/레거시 자산): ValueMap 조회. 키 = `CStr(Value2)` (Value2가 Double인
+  셀만), 값 = 그 값을 렌더링하는 표시 키들의 vbNullChar 연결 문자열.
+
+두 경로 모두 같은 값의 표시 쌍둥이 전부가 매칭에 합류한다(FACT 3 의미론을 비교연산자
+없이 구현). 마지막 비트가 다른 계산값은 범위 밖(문서화된 한계).
 
 ## Conventions specific to this codebase
 
@@ -115,6 +130,7 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 
 ## 설계 문서
 
+- `docs/tasks/2026-07-10_lazy_universe_design.md` — 지연 우주 재설계: 실측 기록 + 스테이지 구현 (완료)
 - `docs/tasks/2026-07-09_cache_fingerprint_design.md` — 캐시 지문 재설계 관측기록 + 결정 (P8 실측 완료)
 - `docs/tasks/2026-07-09_cache_fingerprint_impl_plan.md` — 캐시 지문 구현 계획 (승인, 스테이지 A~D)
 - `docs/tasks/2026-07-09_engine_rebuild_plan.md` — 백지 재설계 승인 플랜 + 스테이지 기록

@@ -1,6 +1,6 @@
 # 지연 우주(Lazy Universe) 재설계 — 실측 기록 + 설계 (2026-07-10)
 
-상태: **승인, 구현 진행 중.** Stage P10 완료(게이트 불통과 — §3.5 개정), Stage A부터 진행.
+상태: **구현 완료 (2026-07-10).** 실측 결과는 §7. Stage D는 P10 불통과로 드랍(§3.5).
 선행 완료: VarEq 에러코드 대조 패치(71d9345) — 에러 셀 캐시 전멸 해소(본 문서 §1.3).
 
 실측 도구: `modBenchReal.bas`(커밋됨). 실데이터 fixture는 "지출 리팩토링" 워크북에서
@@ -154,18 +154,37 @@ P10 프로브 실측(AutoFilterTest `RunP10Only`, gap-probe-findings.md P10 절)
 ## 5. 스테이지 (각각 push -> test green -> commit)
 
 - **Stage P10**: AutoFilterTest에 `"<>"` 스칼라 프로브 + findings 기록.
-  **완료(2026-07-10, AutoFilterTest 64177b9)** — 게이트 불통과, §3.5 개정.
+  **완료(AutoFilterTest 64177b9)** — 게이트 불통과, §3.5 개정.
 - **Stage A (가산)**: modColumnScan에 `RenderBlockBulk`(Evaluate 경로) 병존 신설 +
   Test_CS_BulkRenderEquiv (기존 경로와 전수 동치 단언). 기존 렌더 경로 무변경.
+  **완료(1fb18b9)** — 대표 서식군 21열(빈칸/에러/CF/좁은열/혼합/@숫자/[색]) 전수 동치 0 불일치.
 - **Stage B (자산)**: clsColAsset에 RenderedVec + 지연 인덱스 프로퍼티. BuildAssetFromSig가
   벌크 경로로 RenderedVec 생산. Displays/ValueMap/RowCountByKey 소비자는 무수정 동작
-  (지연 구축이 투명). 스위트 green = 의미론 보존 증명.
+  (지연 구축이 투명). 스위트 green = 의미론 보존 증명. **완료(cbe3530)**.
 - **Stage C (매칭 재배선)**: modMatch를 멤버십 스캔으로 전환(반환 계약 유지),
-  modFilterRun 자가검증을 스캔 계수로. 홧 경로에서 지연 인덱스 미구축 확인
-  (성능 단언: fixture 콜드 < 300ms를 modBenchReal로 수동 확인).
+  modFilterRun 자가검증을 스캔 계수(MatchedRows)로. **완료(5deb287)** — 구현 노트:
+  (a) RenderedVec 프로퍼티 복사(91k BSTR)가 웜을 갉아 스캔을 자산 메서드
+  (ScanOne/ScanCount)로 이동, (b) 토큰 1개는 StrComp 직비교(9.8ms), 다토큰 dict ~55ms,
+  (c) 부분일치는 설계 허용대로 지연 인덱스 경로 유지(구현 단순한 쪽), (d) 값 레인은
+  RenderValueKey(파싱값 x 블록서식) 후보 멤버십 - 우주 구성과 대칭.
 - **Stage D (제외 특례)**: **드랍(P10 불통과)** — 제외는 여집합 배열 유지, 별도 작업 없음.
-- **Stage E (정리/문서)**: 구 RenderBlock 고유값 렌더 경로 정리(병리적 폴백은 유지),
-  src/CLAUDE.md 아키텍처 절 갱신, fixture 재벤치 수치 기록.
+- **Stage E (정리/문서)**: 구 RenderBlock 고유값 렌더 경로 삭제(셀별 BuildPerCell이
+  병리적/벌크실패/테스트 오라클 폴백), src/CLAUDE.md 아키텍처 절 갱신, 재벤치(§7). **완료**.
+
+## 7. 구현 후 실측 (2026-07-10, 지출 fixture)
+
+| 시나리오 (DW_P 91k행/고유 47k) | 재설계 전 | 목표(§3.6) | 실측 |
+|---|--:|--:|--:|
+| 퀵/포함 완전일치 콜드 | 1,006 | ~190 | **195.3** |
+| 동일 웜 | 78 | ~70 | **97.7** (매칭 7.8) |
+| 부분일치 콜드 / 웜 | 1,186 / - | ~390 | **800.8 / 273.4** |
+| 제외 콜드 / 웜 (여집합 47k apply 4,082 지배) | 5,100 | ~4,400 | **4,996 / 4,418** |
+| 저카디널/텍스트 열 콜드 | 82~330 | 동등 이하 | **66~199** |
+
+- 웜 +20ms는 지연 우주의 구조 비용(O(1) dict 조회 -> 매 실행 지문검증+스캔).
+  '즉시' 체감 기준(~100ms) 내라 수용. 부분일치 콜드가 목표 초과인 것은 8,284키
+  xlFilterValues apply(~300ms)와 인덱스 구축이 겹친 탓 - 한계 아님, 필요 시 후속.
+- 스위트 59/59 green. 지문 계약/캐시 경로/Execute 반환 계약 무변경.
 
 ## 6. 리스크 / 한계
 
