@@ -2,72 +2,33 @@ Attribute VB_Name = "Utilities"
 ' @desc 화면 갱신/계산 일시 최적화 토글 담당
 Option Explicit
 
-
-' 최적화 모드 원래 설정값을 저장할 변수
+' 필터 파이프라인에 필요한 3속성만 저장-복원한다.
+' 구판은 PrintCommunication + 전 시트 DisplayPageBreaks까지 토글해 왕복 47.7ms를
+' 매 실행 지불했다(ProbeFixedOverheads 실측). 이 엔진은 읽기 + AutoFilter 적용만
+' 하므로 나머지 속성은 무관하고, DisplayStatusBar 끄기는 상태바 리포트 UX와 상충.
 Private originalCalcMode As XlCalculation
 Private originalScreenUpdating As Boolean
 Private originalEnableEvents As Boolean
-Private originalStatusBar As Boolean
-Private originalEnableAnimations As Boolean
-Private originalPrintCommunication As Boolean
-Private originalPageBreaks As Object
 Private isOptimized As Boolean
 
-
-' VBA 코드 최적화 모드 설정/해제 프로시저
+' @desc 화면갱신/이벤트/계산 3속성을 일시 최적화하거나 원상 복원함
 Public Sub OptimizedMode(ByVal enable As Boolean)
-    Dim ws As Worksheet
-    Dim wsRestore As Worksheet
-
     ' 이미 같은 상태면 중복 실행 방지
     If isOptimized = enable Then Exit Sub
-    
+
     If enable Then
-        ' 현재 설정 저장
         originalCalcMode = Application.Calculation
         originalScreenUpdating = Application.ScreenUpdating
         originalEnableEvents = Application.EnableEvents
-        originalStatusBar = Application.DisplayStatusBar
-        originalEnableAnimations = Application.EnableAnimations
-        originalPrintCommunication = Application.PrintCommunication
-        Set originalPageBreaks = CreateObject("Scripting.Dictionary")
-        
-        ' 최적화 설정 적용
+
         Application.Calculation = xlCalculationManual
         Application.ScreenUpdating = False
         Application.EnableEvents = False
-        Application.DisplayStatusBar = False
-        Application.EnableAnimations = False
-        Application.PrintCommunication = False
-        
-        ' 모든 워크시트의 페이지 나누기 표시 끄기
-        For Each ws In ActiveWorkbook.Worksheets
-            ' [Fix v2.7] 시트별 DisplayPageBreaks 원래 값 저장
-            If Not originalPageBreaks.Exists(ws.Name) Then originalPageBreaks.Add ws.Name, ws.DisplayPageBreaks
-            ws.DisplayPageBreaks = False
-        Next ws
     Else
-        ' 원래 설정으로 복원
         Application.Calculation = originalCalcMode
         Application.ScreenUpdating = originalScreenUpdating
         Application.EnableEvents = originalEnableEvents
-        Application.DisplayStatusBar = originalStatusBar
-        Application.EnableAnimations = originalEnableAnimations
-        Application.PrintCommunication = originalPrintCommunication
-        
-        If Not originalPageBreaks Is Nothing Then
-            ' [Fix v2.7] 시트별 DisplayPageBreaks 원래 값 복원
-            On Error Resume Next
-            For Each wsRestore In ActiveWorkbook.Worksheets
-                If originalPageBreaks.Exists(wsRestore.Name) Then
-                    wsRestore.DisplayPageBreaks = originalPageBreaks(wsRestore.Name)
-                End If
-            Next wsRestore
-            On Error GoTo 0
-            Set originalPageBreaks = Nothing
-        End If
-
     End If
-    
+
     isOptimized = enable
 End Sub
