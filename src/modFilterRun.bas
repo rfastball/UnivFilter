@@ -122,6 +122,7 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
     result("StatusMessage") = msgs("StatusMessage")
     result("MissingMessage") = msgs("MissingMessage")
     result("CorrectionMessage") = msgs("CorrectionMessage")
+    result("CorrectionInline") = msgs("CorrectionInline")
     result("WarningMessage") = msgs("WarningMessage")
 
     ' 누락 클립보드 복사 (포함 모드, 퀵 0건 무적용 제외)

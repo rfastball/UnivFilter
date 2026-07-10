@@ -4,6 +4,11 @@ Attribute VB_Name = "modReport"
 Option Explicit
 
 Private Const MISSING_PREVIEW_MAX As Long = 5
+Private Const STATUS_CLEAR_SECS As Long = 7
+
+' 상태바 자동 소거 예약 관리 (재표시 시 이전 예약 취소용)
+Private mStatusClearAt As Date
+Private mStatusPending As Boolean
 
 ' @desc 매칭 결과 받아 상태/누락/보정 메시지 딕셔너리 반환
 Public Function BuildMessages(ByVal outcome As Object, ByVal bExclude As Boolean, _
@@ -57,6 +62,23 @@ Public Function BuildMessages(ByVal outcome As Object, ByVal bExclude As Boolean
         msgs("CorrectionMessage") = ""
     End If
 
+    ' 자동보정 인라인 요약 (상태바용 한 줄 - 보정은 결정론 동작이라 결과가 곧 피드백,
+    ' 팝업 대신 상태바로만 알린다)
+    If corrections.Count > 0 Then
+        Dim inl As String
+        For Each vKey In corrections.Keys
+            If Len(inl) > 0 Then inl = inl & ", "
+            inl = inl & CStr(vKey) & " -> " & CStr(corrections(vKey))
+            If Len(inl) > 120 Then
+                inl = inl & " ..."
+                Exit For
+            End If
+        Next vKey
+        msgs("CorrectionInline") = inl
+    Else
+        msgs("CorrectionInline") = ""
+    End If
+
     ' 255자 초과 탈락 경고
     Dim vDropped As Variant
     vDropped = applyInfo("DroppedLong")
@@ -69,6 +91,28 @@ Public Function BuildMessages(ByVal outcome As Object, ByVal bExclude As Boolean
 
     Set BuildMessages = msgs
 End Function
+
+' @desc 결과 한 줄을 상태바에 표시함, 일정 시간 후 자동 소거 예약
+Public Sub ShowStatusBar(ByVal sMsg As String)
+    On Error Resume Next
+    If mStatusPending Then
+        Application.OnTime mStatusClearAt, "modReport.ClearStatusBar", , False
+        mStatusPending = False
+    End If
+    Application.StatusBar = sMsg
+    mStatusClearAt = Now + TimeSerial(0, 0, STATUS_CLEAR_SECS)
+    Application.OnTime mStatusClearAt, "modReport.ClearStatusBar"
+    mStatusPending = True
+    On Error GoTo 0
+End Sub
+
+' @desc 상태바를 기본 상태로 되돌림 (OnTime 콜백)
+Public Sub ClearStatusBar()
+    On Error Resume Next
+    mStatusPending = False
+    Application.StatusBar = False
+    On Error GoTo 0
+End Sub
 
 ' @desc 누락 배열을 줄바꿈 목록으로 클립보드에 복사함
 Public Sub CopyMissing(ByVal vMissing As Variant)

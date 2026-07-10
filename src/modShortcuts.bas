@@ -1,6 +1,6 @@
 Attribute VB_Name = "modShortcuts"
 ' @desc 전역 단축키 핸들러와 폼 주입 담당
-' @depends frmFilter01, modUnivFilter, modFilterRun, ClipboardAPI, AutoCloseMsgAPI
+' @depends frmFilter01, modUnivFilter, modFilterRun, modReport, ClipboardAPI, AutoCloseMsgAPI
 Option Explicit
 
 ' ==========================================================
@@ -26,16 +26,15 @@ Public Sub UnivFilter_QuickHandler()
                     frm.InjectBodyRange, frm.InjectFilterArea, _
                     frm.InjectRelativeCol, sClip)
 
-    ' 3. 결과 알림
+    ' 3. 결과 알림: 팝업은 실행 가능 정보(오류/0건/누락)만.
+    ' 자동보정은 결정론 동작이라 결과가 곧 피드백 - 상태바 한 줄로만 알린다.
     If Not result("Ok") Then
         AutoCloseMsgBox_Popup result("ErrMsg"), 3, "오류"
     ElseIf result("QuickNoMatch") Then
         ' 0건: 필터/폼/클립보드 전부 원상태 유지
         AutoCloseMsgBox_Popup "일치하는 값이 없어 필터를 적용하지 않았습니다.", 2, "알림"
     Else
-        If Len(result("CorrectionMessage")) > 0 Then
-            AutoCloseMsgBox_Popup result("CorrectionMessage"), 2, "자동 보정"
-        End If
+        modReport.ShowStatusBar StatusLine(result)
         If Len(result("MissingMessage")) > 0 Then
             AutoCloseMsgBox_Popup result("MissingMessage"), 2
         End If
@@ -61,6 +60,19 @@ Public Sub UnivFilter_UIHandler()
         Unload frm
     End If
 End Sub
+
+' ==========================================================
+' [Helper] 결과 요약을 상태바 한 줄로 조립 (퀵/폼 공용)
+' ==========================================================
+' @desc 결과 딕셔너리 받아 상태바 한 줄 요약 반환, 보정 있으면 인라인 병기
+Public Function StatusLine(ByVal result As Object) As String
+    Dim s As String
+    s = "UnivFilter: " & result("StatusMessage")
+    If Len(result("CorrectionInline")) > 0 Then
+        s = s & " | 보정: " & result("CorrectionInline")
+    End If
+    StatusLine = s
+End Function
 
 ' ==========================================================
 ' [Helper] 현재 열 정보를 폼에 주입하는 공통 로직
