@@ -1,6 +1,6 @@
 Attribute VB_Name = "modBenchReal"
 ' @desc 실데이터 열을 격리 fixture로 복제하고 스캔경로 접근당 비용 계측 담당
-' @depends modCache, modColumnScan, clsColAsset, clsColSig, Utilities, LogShim
+' @depends modCache, modColumnScan, modFilterRun, modInputParse, modMatch, modApply, modReport, clsColAsset, clsColSig, clsSet, frmFilter01, Utilities, LogShim
 Option Explicit
 
 ' 실데이터 원본(직접 벤치 금지 - 데이터만 뽑아 fixture로 복제 후 그 위에서 측정).
@@ -1116,6 +1116,287 @@ Private Function FirstDisplay(ByVal body As Range) As String
         End If
     Next i
 End Function
+
+' @desc 셀1개 퀵필터 콜드 경로의 단계별 소요(지문/렌더빌드/매칭/적용/계수/리포트)를 기록함
+Public Sub BenchColdBreakdown()
+    LogShim.Reset
+    Dim prevEv As Boolean
+    prevEv = Application.EnableEvents
+    Application.EnableEvents = False
+
+    On Error GoTo Fail
+    Dim wb As Workbook
+    Set wb = Workbooks.Open(FixturePath())
+    Utilities.OptimizedMode True
+
+    ColdCol wb.Sheets("DW"), 6, 1, "DW_P_amount_hicard"
+    ColdCol wb.Sheets("DW"), 6, 2, "DW_Z_count_locard"
+    ColdCol wb.Sheets("DW"), 6, 3, "DW_D_text"
+    ColdCol wb.Sheets("DW"), 6, 5, "DW_C_datenum"
+    ColdCol wb.Sheets("DW"), 6, 6, "DW_AC_amount_err"
+    ColdCol wb.Sheets("T"), 2, 1, "SL_V_amtText"
+    ColdCol wb.Sheets("T"), 2, 2, "SL_AH_result"
+
+    Utilities.OptimizedMode False
+    wb.Close SaveChanges:=False
+    Application.EnableEvents = prevEv
+    LogShim.LogEvent "coldbench_done", Array("ok"), Array(True)
+    Exit Sub
+Fail:
+    Utilities.OptimizedMode False
+    LogShim.LogEvent "cold_err", Array("num", "desc"), Array(Err.Number, Err.Description)
+    Application.EnableEvents = prevEv
+End Sub
+
+' 콜드(캐시 미스) 퀵필터를 단계별로 분해 계측한다: e2e 총소요를 먼저 재고,
+' 캐시를 다시 비워 동일 콜드 상태에서 파이프라인 각 단계를 개별 타이밍한다.
+Private Sub ColdCol(ByVal ws As Worksheet, ByVal nCols As Long, _
+                    ByVal field As Long, ByVal tag As String)
+    On Error Resume Next
+    ws.ShowAllData
+    ws.AutoFilterMode = False
+    On Error GoTo 0
+
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, field).End(xlUp).Row
+    If lastRow < 2 Then Exit Sub
+
+    Dim area As Range, body As Range
+    Set area = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, nCols))
+    Set body = ws.Range(ws.Cells(2, field), ws.Cells(lastRow, field))
+
+    Dim inputText As String
+    inputText = FirstDisplay(body)
+
+    area.AutoFilter
+
+    Dim t0 As Single
+
+    ' 1) e2e 콜드 총소요 (실제 RunQuickFilter)
+    modApply.ResetFilters area
+    modCache.ClearCache
+    t0 = Timer
+    Dim r As Object
+    Set r = modFilterRun.RunQuickFilter(body, area, field, inputText)
+    Dim totalCold As Double
+    totalCold = (Timer - t0) * 1000!
+    Dim e2eOk As Boolean, e2eErr As String
+    e2eOk = r("Ok")
+    e2eErr = r("ErrMsg")
+
+    ' 1') 공식 관문 콜드: GetColumnAsset 전체 (e2e와 동일 진입로의 자산 취득만)
+    modApply.ResetFilters area
+    modCache.ClearCache
+    Utilities.OptimizedMode True    ' RunFilter 내부 상태 모사 (Cleanup이 껐음)
+    t0 = Timer
+    Dim assetGate As clsColAsset
+    Set assetGate = modCache.GetColumnAsset(body)
+    Dim assetColdMs As Double
+    assetColdMs = (Timer - t0) * 1000!
+
+    ' 2) 단계분해: 캐시를 다시 비워 동일 콜드 상태 재현
+    modCache.ClearCache
+
+    ' 2a) 지문 계산 (Value2 벌크 + NumberFormatLocal)
+    t0 = Timer
+    Dim sig As clsColSig
+    Set sig = modColumnScan.ComputeSignature(body)
+    Dim sigMs As Double
+    sigMs = (Timer - t0) * 1000!
+
+    ' 2b) 자산 빌드 (Evaluate(TEXT) 벌크 렌더 + 행별 키 채움)
+    t0 = Timer
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAssetFromSig(body, body.Address(External:=True), sig)
+    Dim buildMs As Double
+    buildMs = (Timer - t0) * 1000!
+
+    ' 2b') 벌크 Evaluate 단독 복제 (빌드 내부의 COM 렌더 몫 분리, 균일서식만)
+    Dim evalMs As Double
+    evalMs = -1
+    If (Not sig.IsMixed) And (Not sig.IsPathological) And sig.FmtUniform <> "@" Then
+        ' 실경로(RenderBlockBulk)와 동일하게 숫자 셀이 있을 때만 렌더 (텍스트 열 왜곡 방지)
+        Dim vChk As Variant, hasNum As Boolean, iChk As Long
+        vChk = sig.ContentVec
+        For iChk = 1 To lastRow - 1
+            If VarType(vChk(iChk, 1)) = vbDouble Then
+                hasNum = True
+                Exit For
+            End If
+        Next iChk
+        If Not hasNum Then GoTo SkipEval
+        Dim fmt As String, useFmt As String
+        fmt = sig.FmtUniform
+        If fmt = "General" Or fmt = "G/" & ChrW(&HD45C) & ChrW(&HC900) Then
+            useFmt = "General"
+        Else
+            useFmt = Replace(fmt, "!", "")
+        End If
+        t0 = Timer
+        Dim rendered As Variant
+        rendered = ws.Evaluate("TEXT(" & body.Address & "," & Chr$(34) & _
+                               Replace(useFmt, Chr$(34), Chr$(34) & Chr$(34)) & Chr$(34) & ")")
+        evalMs = (Timer - t0) * 1000!
+        If Not IsArray(rendered) Then evalMs = -2    ' 비배열 = 복제 실패 표시
+    End If
+SkipEval:
+
+    ' 2c) 토큰화
+    t0 = Timer
+    Dim tokens As Variant
+    tokens = modInputParse.Tokenize(inputText)
+    Dim tokMs As Double
+    tokMs = (Timer - t0) * 1000!
+
+    ' 2d) 매칭 (렌더키 멤버십 스캔)
+    t0 = Timer
+    Dim outcome As Object
+    Set outcome = modMatch.Execute(tokens, asset, False)
+    Dim matchMs As Double
+    matchMs = (Timer - t0) * 1000!
+    Dim matched As clsSet
+    Set matched = outcome("Matched")
+
+    ' 2e) 적용 (내부 ResetFilters 포함 - RunFilter와 동일 경로)
+    t0 = Timer
+    Dim ai As Object
+    Set ai = modApply.ApplyDisplays(area, field, matched, False, False)
+    Dim applyMs As Double
+    applyMs = (Timer - t0) * 1000!
+
+    ' 2f) 자가검증 가시행 계수
+    t0 = Timer
+    Dim vis As Long
+    vis = modApply.CountVisibleRows(area)
+    Dim countMs As Double
+    countMs = (Timer - t0) * 1000!
+
+    ' 2g) 리포트 구성
+    t0 = Timer
+    Dim msgs As Object
+    Set msgs = modReport.BuildMessages(outcome, False, ai)
+    Dim reportMs As Double
+    reportMs = (Timer - t0) * 1000!
+
+    Utilities.OptimizedMode False
+    Utilities.OptimizedMode True    ' 다음 열도 동일 조건
+
+    Dim sumMs As Double
+    sumMs = sigMs + buildMs + tokMs + matchMs + applyMs + countMs + reportMs
+
+    LogShim.LogEvent "coldbench", _
+        Array("tag", "rows", "input", "e2eOk", "e2eErr", "totalColdMs", "assetColdMs", _
+              "sigMs", "buildMs", "evalOnlyMs", _
+              "tokMs", "matchMs", "applyMs", "countVisMs", "reportMs", "sumMs", "otherMs"), _
+        Array(tag, lastRow - 1, inputText, e2eOk, e2eErr, Format$(totalCold, "0.0"), _
+              Format$(assetColdMs, "0.0"), _
+              Format$(sigMs, "0.0"), Format$(buildMs, "0.0"), Format$(evalMs, "0.0"), _
+              Format$(tokMs, "0.00"), Format$(matchMs, "0.0"), Format$(applyMs, "0.0"), _
+              Format$(countMs, "0.0"), Format$(reportMs, "0.00"), _
+              Format$(sumMs, "0.0"), Format$(totalCold - sumMs, "0.0"))
+End Sub
+
+' @desc SL_V 콜드 이상치 판별: 타입 센서스와 e2e 전/후 빌드 소요 대조를 기록함
+Public Sub ProbeSLVCold()
+    LogShim.Reset
+    Dim prevEv As Boolean
+    prevEv = Application.EnableEvents
+    Application.EnableEvents = False
+
+    On Error GoTo Fail
+    Dim wb As Workbook
+    Set wb = Workbooks.Open(FixturePath())
+    Utilities.OptimizedMode True
+
+    Dim ws As Worksheet
+    Set ws = wb.Sheets("T")
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    Dim area As Range, body As Range
+    Set area = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, 2))
+    Set body = ws.Range(ws.Cells(2, 1), ws.Cells(lastRow, 1))
+    Dim nRows As Long
+    nRows = lastRow - 1
+
+    ' 1) 타입 센서스 + 서식
+    Dim v2 As Variant
+    v2 = body.Value2
+    Dim nStr As Long, nDbl As Long, nEmp As Long, nOth As Long, i As Long
+    For i = 1 To nRows
+        If IsEmpty(v2(i, 1)) Then
+            nEmp = nEmp + 1
+        ElseIf VarType(v2(i, 1)) = vbString Then
+            nStr = nStr + 1
+        ElseIf VarType(v2(i, 1)) = vbDouble Then
+            nDbl = nDbl + 1
+        Else
+            nOth = nOth + 1
+        End If
+    Next i
+    Dim vFmt As Variant
+    vFmt = body.NumberFormatLocal
+    If IsNull(vFmt) Then vFmt = "(mixed)"
+
+    ' 2) e2e 이전(처녀 상태) 콜드 빌드
+    modCache.ClearCache
+    Dim t0 As Single
+    t0 = Timer
+    Dim a1 As clsColAsset
+    Set a1 = modCache.GetColumnAsset(body)
+    Dim preMs As Double
+    preMs = (Timer - t0) * 1000!
+
+    ' 3) e2e 콜드 (필터 적용까지 - 시트에 필터 이력 생성)
+    area.AutoFilter
+    modApply.ResetFilters area
+    modCache.ClearCache
+    Dim inputText As String
+    inputText = FirstDisplay(body)
+    t0 = Timer
+    Dim r As Object
+    Set r = modFilterRun.RunQuickFilter(body, area, 1, inputText)
+    Dim e2eMs As Double
+    e2eMs = (Timer - t0) * 1000!
+
+    ' 4) e2e 이후 콜드 빌드 (필터 이력 있는 시트)
+    modApply.ResetFilters area
+    modCache.ClearCache
+    Utilities.OptimizedMode True
+    t0 = Timer
+    Dim a2 As clsColAsset
+    Set a2 = modCache.GetColumnAsset(body)
+    Dim postMs As Double
+    postMs = (Timer - t0) * 1000!
+
+    ' 5) .Text 단가 (표본 2000셀)
+    Dim nSmp As Long
+    nSmp = 2000
+    If nSmp > nRows Then nSmp = nRows
+    Dim s As String
+    t0 = Timer
+    For i = 1 To nSmp
+        s = body.Cells(i, 1).Text
+    Next i
+    Dim textMs As Double
+    textMs = (Timer - t0) * 1000!
+
+    LogShim.LogEvent "slvprobe", _
+        Array("rows", "fmt", "nStr", "nDbl", "nEmp", "nOth", "input", _
+              "preE2eColdMs", "e2eMs", "postE2eColdMs", "text2000Ms", _
+              "hasRendered1", "hasRendered2"), _
+        Array(nRows, CStr(vFmt), nStr, nDbl, nEmp, nOth, inputText, _
+              Format$(preMs, "0.0"), Format$(e2eMs, "0.0"), Format$(postMs, "0.0"), _
+              Format$(textMs, "0.0"), a1.HasRendered, a2.HasRendered)
+
+    Utilities.OptimizedMode False
+    wb.Close SaveChanges:=False
+    Application.EnableEvents = prevEv
+    Exit Sub
+Fail:
+    Utilities.OptimizedMode False
+    LogShim.LogEvent "slvprobe_err", Array("num", "desc"), Array(Err.Number, Err.Description)
+    Application.EnableEvents = prevEv
+End Sub
 
 Private Sub BenchColumn(ByVal ws As Worksheet, ByVal col As Long, ByVal tag As String)
     Const REP As Long = 15
