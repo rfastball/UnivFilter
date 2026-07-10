@@ -215,6 +215,91 @@ Private Function RenderBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
     RenderBlock = blankCount
 End Function
 
+' @desc 균일 서식 블록을 Evaluate(TEXT) 1회로 벌크 렌더해 행별 표시키 배열 채움, 실패 시 False 반환
+' 지연 우주 재설계(docs/tasks/2026-07-10_lazy_universe_design.md) Stage A 경로.
+' keys(firstRow..lastRow)에 표시키를 채운다(빈칸은 "" + blankCount 가산).
+' 규칙은 RenderBlock과 동일 의미론: 텍스트 셀은 자기 자신, * 패딩은 접힌형 TEXT,
+' General은 영문 "General" 매핑, ! 제거. CF 무관(TEXT는 기본서식 캐논형 - P9).
+' 폭 무관(P7 캐논형)이라 AutoFit 재독 자체가 없다. 실측 91,235행 COM 1회 = 113ms.
+' 에러 셀(TEXT가 에러 전파)/[색] 등 TEXT 빈문자열/불리언/@서식 숫자 셀만 셀별 .Text 폴백.
+' False 반환(Evaluate 실패/수식 255자 초과) 시 호출부가 RenderBlock으로 폴백한다.
+Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
+                               ByVal firstRow As Long, ByVal lastRow As Long, _
+                               ByVal fmt As String, ByRef keys() As String, _
+                               ByRef blankCount As Long) As Boolean
+    Dim cleanFmt As String
+    cleanFmt = Replace(fmt, "!", "")
+    Dim fmtRender As String
+    fmtRender = RenderFmt(fmt, cleanFmt, IsGeneralFmt(fmt))
+    ' 텍스트 서식(@) 열의 숫자 셀은 TEXT(v,"@")가 실표시와 다를 수 있어 벌크 부적용(셀별)
+    Dim isTextFmt As Boolean
+    isTextFmt = (fmt = "@")
+
+    ' 숫자 셀이 하나라도 있을 때만 Evaluate 1회 (텍스트/빈칸뿐이면 렌더 불요)
+    Dim needRender As Boolean
+    Dim i As Long
+    If Not isTextFmt Then
+        For i = firstRow To lastRow
+            If VarType(v2(i, 1)) = vbDouble Then
+                needRender = True
+                Exit For
+            End If
+        Next i
+    End If
+
+    Dim rendered As Variant
+    If needRender Then
+        Dim blockRng As Range
+        Set blockRng = rTarget.Worksheet.Range(rTarget.Cells(firstRow, 1), _
+                                               rTarget.Cells(lastRow, 1))
+        Dim sFormula As String
+        sFormula = "TEXT(" & blockRng.Address & "," & Chr$(34) & _
+                   Replace(fmtRender, Chr$(34), Chr$(34) & Chr$(34)) & Chr$(34) & ")"
+        If Len(sFormula) > 255 Then Exit Function        ' Evaluate 수식 한계
+
+        On Error Resume Next
+        rendered = rTarget.Worksheet.Evaluate(sFormula)
+        On Error GoTo 0
+        If Not IsArray(rendered) Then
+            If firstRow = lastRow Then
+                If IsError(rendered) Or IsEmpty(rendered) Then Exit Function
+                Dim tmp1 As Variant
+                ReDim tmp1(1 To 1, 1 To 1)
+                tmp1(1, 1) = rendered                    ' 단일 행 블록: 스칼라 반환 정규화
+                rendered = tmp1
+            Else
+                Exit Function                            ' 다행인데 비배열 = Evaluate 실패
+            End If
+        End If
+    End If
+
+    Dim val As Variant, k As String, j As Long
+    For i = firstRow To lastRow
+        val = v2(i, 1)
+        If IsEmpty(val) Then
+            keys(i) = ""                                 ' TEXT(빈칸)="0" 함정: 렌더값 무시
+            blankCount = blankCount + 1
+        ElseIf IsError(val) Then
+            keys(i) = rTarget.Cells(i, 1).Text           ' 에러: TEXT가 에러 전파 - 셀별
+        ElseIf VarType(val) = vbString Then
+            keys(i) = CStr(val)                          ' 텍스트: 자기 자신 (TEXT는 날짜문자열 강제 위험)
+        ElseIf VarType(val) = vbDouble And needRender Then
+            j = i - firstRow + 1
+            If IsError(rendered(j, 1)) Then
+                keys(i) = rTarget.Cells(i, 1).Text
+            Else
+                k = CStr(rendered(j, 1))
+                If Len(k) = 0 Then k = rTarget.Cells(i, 1).Text   ' [색] 등 TEXT 빈문자열 폴백
+                keys(i) = k
+            End If
+        Else
+            keys(i) = rTarget.Cells(i, 1).Text           ' 불리언/@서식 숫자 등: 셀별 (드묾)
+        End If
+    Next i
+
+    RenderBlockBulk = True
+End Function
+
 ' [firstRow,lastRow]를 균일 블록 목록으로 이진 분할한다. 예산 초과 시 False.
 Private Function TryPartition(ByVal rTarget As Range, ByVal firstRow As Long, _
                              ByVal lastRow As Long, ByVal blocks As Collection, _
