@@ -13,8 +13,8 @@ Option Explicit
 '    ProbeTextDecay 실측)에 노출되므로 캐논 경로가 항상 우선한다
 '
 ' 성능 계약 (지연 우주 - docs/tasks/2026-07-10_lazy_universe_design.md):
-'  - 균일/혼합 블록: 블록별 Evaluate(TEXT) 1회 벌크 렌더(RenderBlockBulk)로 행별
-'    표시키 배열(RenderedVec)을 생산한다. 실측 91,235행 = COM 1회 113ms.
+'  - 균일/혼합 블록: 블록별 Application.Text(배열) 1회 벌크 렌더(RenderBlockBulk)로
+'    행별 표시키 배열(RenderedVec)을 생산한다. 실측 91,235행 = COM 1회 ~100ms.
 '    집합/지도 인덱스는 자산(clsColAsset)이 소비자 최초 접근 시 지연 구축.
 '  - 혼합 서식: 실데이터는 셀별 랜덤이 아니라 '서식 블록'이다. NumberFormatLocal이
 '    혼합 범위에서 Null인 성질을 이진 분할로 재귀해 블록 경계만 찾는다(TryPartition,
@@ -140,15 +140,15 @@ Public Function BuildAssetFromSig(ByVal rngCol As Range, ByVal sID As String, _
     Set BuildAssetFromSig = asset
 End Function
 
-' @desc 균일 서식 블록을 Evaluate(TEXT) 1회로 벌크 렌더해 행별 표시키 배열 채움, 실패 시 False 반환
+' @desc 균일 서식 블록을 Application.Text 1회로 벌크 렌더해 행별 표시키 배열 채움, 실패 시 False 반환
 ' 지연 우주(docs/tasks/2026-07-10_lazy_universe_design.md)의 기본 렌더 경로.
 ' keys(firstRow..lastRow)에 표시키를 채운다(빈칸은 "" + blankCount 가산).
 ' 표시 키 규칙(모듈 헤더)의 벌크판: 텍스트 셀은 자기 자신, * 패딩은 접힌형 TEXT,
 ' General은 영문 "General" 매핑, ! 제거, @서식 숫자 셀은 General 렌더(P11 캐논).
 ' CF 무관(TEXT는 기본서식 캐논형 - P9). 폭 무관(P7/P11 캐논형)이라 AutoFit 재독 없음.
-' 실측 91,235행 COM 1회 = 113ms. 에러 셀은 코드 매핑(ErrKey, P12) - 미지 코드/
+' 실측 91,235행 COM 1회 = ~100ms. 에러 셀은 코드 매핑(ErrKey, P12) - 미지 코드/
 ' TEXT 빈문자열([색])만 셀별 .Text 폴백. 불리언은 "TRUE"/"FALSE"(P12).
-' False 반환(Evaluate 실패/수식 255자 초과) 시 호출부가 셀별 렌더(BuildPerCell)로 폴백.
+' False 반환(리프팅 실패) 시 호출부가 셀별 렌더(BuildPerCell)로 폴백.
 ' 정합 게이트: Test_CS_BulkRenderEquiv가 셀별 오라클과 전수 동치를 고정.
 Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
                                ByVal firstRow As Long, ByVal lastRow As Long, _
@@ -164,7 +164,7 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
         fmtRender = RenderFmt(fmt, cleanFmt, IsGeneralFmt(fmt))
     End If
 
-    ' 숫자 셀이 하나라도 있을 때만 Evaluate 1회 (텍스트/빈칸뿐이면 렌더 불요)
+    ' 숫자 셀이 하나라도 있을 때만 벌크 렌더 1회 (텍스트/빈칸뿐이면 렌더 불요)
     Dim needRender As Boolean
     Dim i As Long
     For i = firstRow To lastRow
@@ -176,31 +176,48 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
 
     Dim rendered As Variant
     If needRender Then
-        Dim blockRng As Range
-        Set blockRng = rTarget.Worksheet.Range(rTarget.Cells(firstRow, 1), _
-                                               rTarget.Cells(lastRow, 1))
-        Dim sFormula As String
-        sFormula = "TEXT(" & blockRng.Address & "," & Chr$(34) & _
-                   Replace(fmtRender, Chr$(34), Chr$(34) & Chr$(34)) & Chr$(34) & ")"
-        If Len(sFormula) > 255 Then Exit Function        ' Evaluate 수식 한계
+        ' Application.Text(배열, 서식) 리프팅 - Evaluate(TEXT(범위)) 동속 실측
+        ' (ProbeEvalAlternatives). 수식 문자열이 없어 255자 한계/주소 이스케이프가
+        ' 소멸하고, 이미 읽은 v2를 그대로 입력해 시트 상태와 무관하다.
+        Dim inputArr As Variant
+        If firstRow = 1 And lastRow = UBound(v2, 1) Then
+            inputArr = v2                                ' 균일 열: 복사 없이 전체 전달
+        Else
+            Dim nBlk As Long
+            nBlk = lastRow - firstRow + 1
+            Dim tmp() As Variant
+            ReDim tmp(1 To nBlk, 1 To 1)
+            Dim r As Long
+            For r = 1 To nBlk
+                tmp(r, 1) = v2(firstRow + r - 1, 1)
+            Next r
+            inputArr = tmp
+        End If
 
         On Error Resume Next
-        rendered = rTarget.Worksheet.Evaluate(sFormula)
+        rendered = Application.Text(inputArr, fmtRender)
         On Error GoTo 0
         If Not IsArray(rendered) Then
             If firstRow = lastRow Then
                 If IsError(rendered) Or IsEmpty(rendered) Then Exit Function
                 Dim tmp1 As Variant
-                ReDim tmp1(1 To 1, 1 To 1)
-                tmp1(1, 1) = rendered                    ' 단일 행 블록: 스칼라 반환 정규화
+                ReDim tmp1(1 To 1)
+                tmp1(1) = rendered                       ' 단일 행 블록: 스칼라 반환 정규화
                 rendered = tmp1
             Else
-                Exit Function                            ' 다행인데 비배열 = Evaluate 실패
+                Exit Function                            ' 다행인데 비배열 = 리프팅 실패
             End If
         End If
     End If
 
-    Dim val As Variant, k As String, j As Long
+    ' 리프팅 반환은 크기에 따라 1차원/2차원(Nx1)이 갈린다 - 차원 불문 인덱싱 준비
+    Dim rTwoD As Boolean, rBase As Long
+    If needRender Then
+        rTwoD = ArrIs2D(rendered)
+        If rTwoD Then rBase = LBound(rendered, 1) Else rBase = LBound(rendered)
+    End If
+
+    Dim val As Variant, rv As Variant, k As String
     For i = firstRow To lastRow
         val = v2(i, 1)
         If IsEmpty(val) Then
@@ -215,11 +232,15 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
         ElseIf VarType(val) = vbBoolean Then
             If val Then keys(i) = "TRUE" Else keys(i) = "FALSE"   ' 캐논 (P12)
         ElseIf VarType(val) = vbDouble And needRender Then
-            j = i - firstRow + 1
-            If IsError(rendered(j, 1)) Then
+            If rTwoD Then
+                rv = rendered(rBase + i - firstRow, 1)
+            Else
+                rv = rendered(rBase + i - firstRow)
+            End If
+            If IsError(rv) Then
                 keys(i) = rTarget.Cells(i, 1).Text
             Else
-                k = CStr(rendered(j, 1))
+                k = CStr(rv)
                 If Len(k) = 0 Then k = rTarget.Cells(i, 1).Text   ' [색] 등 TEXT 빈문자열 폴백
                 keys(i) = k
             End If
@@ -229,6 +250,15 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
     Next i
 
     RenderBlockBulk = True
+End Function
+
+' 배열이 2차원인지 판정한다 (Application.Text 리프팅 반환 정규화용).
+Private Function ArrIs2D(ByRef a As Variant) As Boolean
+    On Error GoTo OneD
+    Dim n As Long
+    n = UBound(a, 2)
+    ArrIs2D = True
+OneD:
 End Function
 
 ' 에러 Variant의 캐논 표시 문자열 반환 (P12: 매칭 키는 폭 무관 캐논 문자열).
