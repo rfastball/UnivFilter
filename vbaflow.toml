@@ -10,4 +10,4 @@ root = "src"
 
 [dist]
 version = "2.6.0"
-exclude = ["Test_*"]
+exclude = ["Test_*", "modBenchReal", "modPerfProbe", "CodeManager"]
