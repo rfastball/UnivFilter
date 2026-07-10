@@ -68,6 +68,34 @@ Public Property Get RenderedVec() As String()
     RenderedVec = mRenderedVec
 End Property
 
+' @desc 키 딕셔너리 받아 렌더키 1패스 멤버십 표시 후 매칭 행수 반환
+' 발견한 키는 keyDict(키)=True로 마킹한다. 배열 복사 없이 내부 배열을 직스캔
+' (실측 91k행 dict 멤버십 ~55ms). InitRendered 자산 전용 - 인덱스를 구축하지 않는다.
+Public Function ScanCount(ByVal keyDict As Object) As Long
+    Dim n As Long, i As Long, k As String
+    For i = 1 To mRowCount
+        k = mRenderedVec(i)
+        If Len(k) > 0 Then
+            If keyDict.exists(k) Then
+                keyDict(k) = True
+                n = n + 1
+            End If
+        End If
+    Next i
+    ScanCount = n
+End Function
+
+' @desc 단일 키의 렌더키 1패스 멤버십 행수 반환, foundOut에 발견 여부 기록
+' dict 해싱 없는 StrComp 직비교(실측 91k행 ~10ms) - 퀵필터 지배 사례(토큰 1개) 전용.
+Public Function ScanOne(ByVal key As String, ByRef foundOut As Boolean) As Long
+    Dim n As Long, i As Long
+    For i = 1 To mRowCount
+        If StrComp(mRenderedVec(i), key, vbTextCompare) = 0 Then n = n + 1
+    Next i
+    foundOut = (n > 0)
+    ScanOne = n
+End Function
+
 Public Property Get Displays() As clsSet
     EnsureIndexes
     Set Displays = mDisplays

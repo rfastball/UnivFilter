@@ -331,6 +331,17 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
     RenderBlockBulk = True
 End Function
 
+' @desc 값과 블록 서식 받아 우주 표시키 반환, 렌더 불가 시 빈 문자열 반환
+' 벌크 렌더(RenderBlockBulk)와 동일 규칙의 값 1건판 - 값 레인 후보키 생성용(modMatch).
+' "이 값이 이 서식 블록에 있었다면 우주에 어떤 키로 존재하는가"를 재현한다.
+Public Function RenderValueKey(ByVal v As Double, ByVal fmt As String) As String
+    If fmt = "@" Then
+        RenderValueKey = CStr(v)
+    Else
+        RenderValueKey = SafeWText(v, RenderFmt(fmt, Replace(fmt, "!", ""), IsGeneralFmt(fmt)))
+    End If
+End Function
+
 ' [firstRow,lastRow]를 균일 블록 목록으로 이진 분할한다. 예산 초과 시 False.
 Private Function TryPartition(ByVal rTarget As Range, ByVal firstRow As Long, _
                              ByVal lastRow As Long, ByVal blocks As Collection, _

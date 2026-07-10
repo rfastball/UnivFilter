@@ -54,6 +54,9 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
     Set matched = outcome("Matched")
     result("MatchedCount") = matched.Count
     result("Missing") = outcome("Missing")
+    ' 스캔 경로는 매칭 행수를 부산물로 반환(-1이면 인덱스 경로 - ExpectedRows로 대체)
+    Dim matchedRows As Long
+    matchedRows = outcome("MatchedRows")
 
     ' 4. 적용
     Dim applyInfo As Object
@@ -80,7 +83,11 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
             Else
                 Set applyInfo = modApply.ApplyDisplays(rngFilterArea, lField, comp, _
                                                        asset.HasBlanks, bStack)
-                expectedRows = asset.ExpectedRows(comp, asset.HasBlanks)
+                If matchedRows >= 0 Then
+                    expectedRows = asset.RowCount - matchedRows   ' 제외 가시 = 전체 - 매칭행
+                Else
+                    expectedRows = asset.ExpectedRows(comp, asset.HasBlanks)
+                End If
             End If
         End If
     Else
@@ -90,7 +97,11 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
             expectedRows = 0
         Else
             Set applyInfo = modApply.ApplyDisplays(rngFilterArea, lField, matched, False, bStack)
-            expectedRows = asset.ExpectedRows(matched, False)
+            If matchedRows >= 0 Then
+                expectedRows = matchedRows                        ' 스캔 계수 = 기대 가시행
+            Else
+                expectedRows = asset.ExpectedRows(matched, False)
+            End If
         End If
     End If
 
