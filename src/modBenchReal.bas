@@ -1729,6 +1729,101 @@ Fail:
     LogShim.LogEvent "inproc_err", Array("num", "desc"), Array(Err.Number, Err.Description)
 End Sub
 
+' @desc Evaluate(TEXT) 대안 실측: Application.Text 배열 리프팅 소요/정합/빈칸 거동 기록함
+Public Sub ProbeEvalAlternatives()
+    LogShim.Reset
+    Dim prevEv As Boolean
+    prevEv = Application.EnableEvents
+    Application.EnableEvents = False
+
+    On Error GoTo Fail
+    Const N As Long = 91235
+    Dim arr() As Variant
+    ReDim arr(1 To N, 1 To 1)
+    Dim i As Long
+    For i = 1 To N
+        arr(i, 1) = (i * 7919#) + (i Mod 100) / 100#
+    Next i
+    arr(5, 1) = Empty                      ' 빈칸 거동 관찰용
+    arr(7, 1) = CVErr(2042)                ' 에러 거동 관찰용
+
+    Dim t0 As Single
+
+    ' 1) Application.Text(배열, 서식) - 리프팅 여부/소요
+    t0 = Timer
+    Dim res As Variant
+    res = Application.Text(arr, "#,##0")
+    Dim appMs As Double
+    appMs = (Timer - t0) * 1000!
+    Dim liftOk As Boolean
+    liftOk = IsArray(res)
+
+    Dim sBlank As String, sErr As String, sVal As String, nMis As Long
+    If liftOk Then
+        If IsError(res(5, 1)) Then sBlank = "(error)" Else sBlank = "[" & CStr(res(5, 1)) & "]"
+        If IsError(res(7, 1)) Then sErr = "(error)" Else sErr = "[" & CStr(res(7, 1)) & "]"
+        sVal = CStr(res(1, 1))
+        ' 표본 정합: WText와 1000건 대조 (빈칸/에러 행 제외)
+        Dim wt As String, j As Long
+        For i = 1 To 1000
+            j = i * 91
+            If j <> 5 And j <> 7 Then
+                wt = Application.WorksheetFunction.Text(arr(j, 1), "#,##0")
+                If CStr(res(j, 1)) <> wt Then nMis = nMis + 1
+            End If
+        Next i
+    End If
+
+    ' 2) 동일 데이터를 임시 시트에 써서 Evaluate(TEXT) 기준선 재측정 (동일 런 대조)
+    Dim wb As Workbook
+    Set wb = Workbooks.Add
+    Utilities.OptimizedMode True
+    Dim ws As Worksheet
+    Set ws = wb.Sheets(1)
+    Dim rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(N, 1))
+    rng.NumberFormat = "#,##0"
+    rng.Value2 = arr
+    t0 = Timer
+    Dim res2 As Variant
+    res2 = ws.Evaluate("TEXT(" & rng.Address & ",""#,##0"")")
+    Dim evalMs As Double
+    evalMs = (Timer - t0) * 1000!
+
+    ' 3) WorksheetFunction.Text(배열) 리프팅 시도 (참고)
+    Dim wfLift As String
+    On Error Resume Next
+    Dim res3 As Variant
+    res3 = Application.WorksheetFunction.Text(arr, "#,##0")
+    If Err.Number <> 0 Then
+        wfLift = "ERR:" & Err.Number
+    ElseIf IsArray(res3) Then
+        wfLift = "array"
+    Else
+        wfLift = "scalar"
+    End If
+    Err.Clear
+    On Error GoTo Fail
+
+    LogShim.LogEvent "evalalt", _
+        Array("n", "appTextMs", "lifted", "evalBaseMs", "blankRender", "errRender", _
+              "firstVal", "mis1000", "wfLift"), _
+        Array(N, Format$(appMs, "0.0"), liftOk, Format$(evalMs, "0.0"), _
+              sBlank, sErr, sVal, nMis, wfLift)
+
+    Utilities.OptimizedMode False
+    wb.Close SaveChanges:=False
+    Application.EnableEvents = prevEv
+    Exit Sub
+Fail:
+    Utilities.OptimizedMode False
+    On Error Resume Next
+    wb.Close SaveChanges:=False
+    On Error GoTo 0
+    LogShim.LogEvent "evalalt_err", Array("num", "desc"), Array(Err.Number, Err.Description)
+    Application.EnableEvents = prevEv
+End Sub
+
 ' 전행 셀별 .Text 1패스 소요(ms)를 잰다.
 Private Function TextPass(ByVal body As Range, ByVal nRows As Long) As Double
     Dim t0 As Single, i As Long, s As String
