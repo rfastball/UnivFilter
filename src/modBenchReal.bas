@@ -1964,6 +1964,80 @@ Fail:
     Application.EnableEvents = prevEv
 End Sub
 
+' @desc 증분 패치 재스캔 실측: 편집 1셀/3셀 후 GetColumnAsset 소요와 패치 여부 기록함
+Public Sub ProbePatchRescan()
+    LogShim.Reset
+    Dim prevEv As Boolean
+    prevEv = Application.EnableEvents
+    Application.EnableEvents = False
+
+    On Error GoTo Fail
+    Dim wb As Workbook
+    Set wb = Workbooks.Open(FixturePath())
+    Utilities.OptimizedMode True
+
+    Dim ws As Worksheet
+    Set ws = wb.Sheets("DW")
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    Dim body As Range
+    Set body = ws.Range(ws.Cells(2, 1), ws.Cells(lastRow, 1))
+
+    Dim t0 As Single
+    modCache.ClearCache
+    t0 = Timer
+    Dim a1 As clsColAsset
+    Set a1 = modCache.GetColumnAsset(body)
+    Dim coldMs As Double
+    coldMs = (Timer - t0) * 1000!
+
+    ' 웜 (무변경)
+    t0 = Timer
+    Dim a2 As clsColAsset
+    Set a2 = modCache.GetColumnAsset(body)
+    Dim warmMs As Double
+    warmMs = (Timer - t0) * 1000!
+
+    ' 1셀 편집 -> 재취득 (증분 패치 기대)
+    ws.Cells(500, 1).Value = 12345678
+    t0 = Timer
+    Dim a3 As clsColAsset
+    Set a3 = modCache.GetColumnAsset(body)
+    Dim patch1Ms As Double
+    patch1Ms = (Timer - t0) * 1000!
+    Dim samePatch1 As Boolean
+    samePatch1 = (a3 Is a1)
+
+    ' 3셀 편집 (값->값/값->빈칸/빈칸 유지 혼합)
+    ws.Cells(600, 1).Value = 777
+    ws.Cells(700, 1).ClearContents
+    ws.Cells(800, 1).Value = 888
+    t0 = Timer
+    Dim a4 As clsColAsset
+    Set a4 = modCache.GetColumnAsset(body)
+    Dim patch3Ms As Double
+    patch3Ms = (Timer - t0) * 1000!
+
+    LogShim.LogEvent "patchbench", _
+        Array("rows", "coldMs", "warmMs", "patch1Ms", "patch1Same", "patch3Ms", _
+              "hasKey"), _
+        Array(lastRow - 1, Format$(coldMs, "0.0"), Format$(warmMs, "0.0"), _
+              Format$(patch1Ms, "0.0"), samePatch1, Format$(patch3Ms, "0.0"), _
+              a4.Displays.Contains("12,345,678"))
+
+    Utilities.OptimizedMode False
+    wb.Close SaveChanges:=False
+    Application.EnableEvents = prevEv
+    Exit Sub
+Fail:
+    Utilities.OptimizedMode False
+    On Error Resume Next
+    wb.Close SaveChanges:=False
+    On Error GoTo 0
+    LogShim.LogEvent "patchbench_err", Array("num", "desc"), Array(Err.Number, Err.Description)
+    Application.EnableEvents = prevEv
+End Sub
+
 ' 전행 셀별 .Text 1패스 소요(ms)를 잰다.
 Private Function TextPass(ByVal body As Range, ByVal nRows As Long) As Double
     Dim t0 As Single, i As Long, s As String

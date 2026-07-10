@@ -41,8 +41,9 @@ AutoFilterTest 프로젝트가 측정한 사실이 이 엔진의 존재 이유�
 ### 지배 원리 (지연 우주 - docs/tasks/2026-07-10_lazy_universe_design.md)
 
 ```
-universe  = 열의 행별 렌더키 배열 RenderedVec (modColumnScan이 블록별 Evaluate(TEXT)
-            1회로 관측 - 91k행 113ms, 폭/CF 무관 캐논형)
+universe  = 열의 행별 렌더키 배열 RenderedVec (modColumnScan이 블록별
+            Application.Text(배열) 1회로 관측 - 91k행 ~100ms, 폭/CF/화면 무관 캐논형.
+            에러/불리언은 코드 매핑, @숫자는 General 렌더 - P11/P12)
 집합/지도 = 우주가 아니라 우주에 대한 '지연 인덱스' - 요구하는 소비자(제외/부분일치)가
             최초 접근할 때 1회 구축(고카디널 ~180ms), 자산에 캐시
 matched   = 표시레인(토큰 멤버십 스캔, 행계수 부산물) UNION
@@ -53,10 +54,12 @@ missing   = 양 레인 0건 토큰 (팝업 + 클립보드)
 corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정 리포트)
 ```
 
-실측(지출 fixture 91k행/고유 47k): 퀵 콜드 1,006 -> **195ms**, 웜 98ms(매칭 7.8ms),
-부분일치 콜드 1,186 -> 801ms. 제외는 여집합 배열 유지 - **P10 실측으로 `"<>"` 스칼라
-기각**(부등호는 값 강제 의미론: 표시쌍둥이 과소/값쌍둥이 과잉 제외, 회계 접힌형 매칭
-불가). 고카디널 제외 ~4.4s(apply 지배)는 문서화된 한계.
+실측(지출 fixture 91k행/고유 47k, 2026-07-10 .Text 우회 로드맵 완료 후): 퀵 콜드
+1,006 -> **164ms**, 웜 **59ms**(매칭 ~4ms), 편집 1셀 후 재스캔 **19.5ms**(증분 패치),
+@숫자 28k 열 콜드 1.4s급 병리 -> 47ms. 제외는 여집합 배열 유지 - **P10 실측으로
+`"<>"` 스칼라 기각**(부등호는 값 강제 의미론: 표시쌍둥이 과소/값쌍둥이 과잉 제외,
+회계 접힌형 매칭 불가). 고카디널 제외 ~4.4s(apply 지배)는 문서화된 한계.
+폼 모드는 오픈 직후 프리웜으로 콜드가 체감에서 은폐된다.
 
 ### Two entry paths share one pipeline
 
@@ -86,10 +89,10 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 | `modFilterRun` | 파이프라인 오케스트레이션 (폼/퀵 공용 진입점, 자가검증 포함) |
 | `modInputParse` | 토큰화(개행/탭, 콤마는 구분자 아님) + 값 후보 해석(통화/괄호음수/%/날짜) |
 | `modMatch` | 2레인 매칭: 완전일치는 렌더키 멤버십 스캔(행계수 부산물), 값 브리지는 RenderValueKey 후보키, 부분일치는 지연 인덱스 InStr |
-| `modColumnScan` | 열 1회 스캔: 블록별 벌크 Evaluate(TEXT)로 렌더키 배열 생산. `ComputeSignature`(값싼 prefix)/`BuildAssetFromSig`(suffix) 분할, 병리적/벌크실패는 셀별 폴백 |
+| `modColumnScan` | 열 1회 스캔: 블록별 Application.Text(배열) 벌크로 캐논 렌더키 배열 생산 (에러=코드매핑/불리언=TRUE·FALSE/@숫자=General - P11/P12). `ComputeSignature`(값싼 prefix)/`BuildAssetFromSig`(suffix) 분할, `TryPatchAsset`(증분 재렌더), 병리적/벌크실패는 셀별 폴백(fmtLocal+WText 캐논, .Text 아님) |
 | `modApply` | xlFilterValues 단일 Tier 적용, 255자 특례, 전체숨김/필드해제, 가시행 계수 |
 | `modReport` | 상태/누락/보정/경고 메시지 구성 + 누락 클립보드 복사 |
-| `modCache` | 자산 캐시 + 지문 신선도 관측. 불일치면 **투명 재스캔** (이벤트/세대 없음) |
+| `modCache` | 자산 캐시 + 지문 신선도 관측. 불일치면 값만 변경 시 **증분 패치**(변경 행만 재렌더, 1,000행 상한), 그 외 **투명 재스캔** (이벤트/세대 없음) |
 | `clsColAsset` | RenderedVec(행별 렌더키) + 지연 인덱스(Displays/ValueMap/RowCountByKey) + BlankCount + 지문 스탬프 + 멤버십 스캔 프리미티브(ScanOne/ScanCount) |
 | `clsColSig` | 열 지문: RowCount + ContentVec(Value2 배열) + 서식rep. `Matches` 저장-비교(충돌0) |
 | `frmFilter01` | UI 전용: Range 주입받아 RunFilter 위임, 결과 팝업 |
@@ -103,7 +106,7 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 
 `modCache.GetColumnAsset(rng)`이 열 읽기의 단일 관문. 캐시 키는 `rng.Address(External:=True)`.
 
-- **지문 계약**: 신선도는 예측이 아니라 **관측**이다. `GetColumnAsset`이 매 접근에 `ComputeSignature`(값싼 prefix: Value2 벌크 + NumberFormatLocal, 렌더 없음)로 현재 지문을 계산해 캐시된 자산의 지문과 `Matches`로 대조하고, 불일치면 **조용히 재스캔**(지문 재사용해 Value2 재독 없음)한다. 파이프라인이 실행 시점마다 캐시를 통과하므로 "낡은 스냅샷으로 필터"는 구조적으로 불가능(`Test_Generation2`가 고정).
+- **지문 계약**: 신선도는 예측이 아니라 **관측**이다. `GetColumnAsset`이 매 접근에 `ComputeSignature`(값싼 prefix: Value2 벌크 + NumberFormatLocal, 렌더 없음)로 현재 지문을 계산해 캐시된 자산의 지문과 `Matches`로 대조하고, 불일치면 값만 바뀐 경우(행수/서식 구조 동일) **증분 패치**(`TryPatchAsset` - 변경 행만 캐논 재렌더, 키가 (값,서식) 순수 함수라는 P11/P12가 근거), 그 외 **조용히 재스캔**(지문 재사용해 Value2 재독 없음)한다. 불변식은 객체 신원이 아니라 내용 신선도 - 파이프라인이 실행 시점마다 캐시를 통과하므로 "낡은 스냅샷으로 필터"는 구조적으로 불가능(`Test_Generation2`가 고정).
 - **정합성 최대 고정**(설계 근거: `docs/tasks/2026-07-09_cache_fingerprint_design.md`): 지문 = RowCount + ContentVec(Value2 배열 저장-비교, 충돌0) + 서식rep(균일=문자열/혼합=블록목록). 값·서식 변경을 전부 관측으로 잡는다. **이벤트/세대 없음** — 무효화를 미검증 이벤트 경로에 맡기지 않는다. CF는 우주 불변(P8 실측)이라 지문 대상 아님. CF 열 렌더는 `.Text`(CF 추종) 대신 `WText(기본서식)`(P8 결론2/P9 수정 완료).
 - 스캔은 **주입 범위를 신뢰**한다(끝쪽 빈칸도 필터 대상 행). 범위 경계의 진실은 호출부 소유: ListObject는 DataBodyRange, AutoFilter는 AutoFilter.Range에서 헤더 제외.
 
@@ -130,6 +133,7 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 
 ## 설계 문서
 
+- `docs/tasks/2026-07-10_text_bypass_plan.md` — .Text 우회 + 고정비 감량: P11/P12 캐논 게이트, 행숨김 이력 .Text 저하 실측, 증분 패치 (완료)
 - `docs/tasks/2026-07-10_lazy_universe_design.md` — 지연 우주 재설계: 실측 기록 + 스테이지 구현 (완료)
 - `docs/tasks/2026-07-09_cache_fingerprint_design.md` — 캐시 지문 재설계 관측기록 + 결정 (P8 실측 완료)
 - `docs/tasks/2026-07-09_cache_fingerprint_impl_plan.md` — 캐시 지문 구현 계획 (승인, 스테이지 A~D)
