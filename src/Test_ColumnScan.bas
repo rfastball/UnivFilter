@@ -217,6 +217,61 @@ Public Sub Test_CS_DataUniformBlankPollution()
     DropSheet
 End Sub
 
+' @desc @서식 숫자 셀이 좁은 열에서도 General 캐논형 키로 렌더되는지 검증함(P11)
+Public Sub Test_CS_AtNumericCanon()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ' 값 먼저 입력 후 @ 적용 (Double 유지 - 실데이터 SL_V 패턴)
+    ws.Range("A1").Value = 212970000
+    ws.Range("A2").Value = 1234
+    ws.Range("A1:A2").NumberFormat = "@"
+    ws.Columns("A").ColumnWidth = 8
+
+    ' 전제: 좁은 폭에서 .Text가 캐논형과 다르게 잘렸다 (P11: 잘린형은 매칭 키가 아님)
+    Dim narrowBig As String
+    narrowBig = ws.Range("A1").Text
+    LogShim.AssertEq "cs_atnum_premise", True, (narrowBig <> "212970000")
+
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T")
+
+    LogShim.AssertEq "cs_atnum_canon", True, asset.Displays.Contains("212970000")
+    LogShim.AssertEq "cs_atnum_small", True, asset.Displays.Contains("1234")
+    LogShim.AssertEq "cs_atnum_no_clip", False, asset.Displays.Contains(narrowBig)
+    ' 값 레인 대칭: RenderValueKey도 General 캐논
+    LogShim.AssertEq "cs_atnum_vkey", "212970000", _
+        modColumnScan.RenderValueKey(212970000#, "@")
+
+    DropSheet
+End Sub
+
+' @desc 에러/불리언 셀이 좁은 열에서도 캐논 문자열 키로 렌더되는지 검증함(P12)
+Public Sub Test_CS_ErrBoolCanon()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.Range("A1").Formula = "=NA()"
+    ws.Range("A2").Formula = "=1/0"
+    ws.Range("A3").Value = True
+    ws.Range("A4").Value = False
+    ws.Columns("A").ColumnWidth = 3
+
+    ' 전제: 좁은 폭에서 에러 표시가 잘렸다 ("##" - P12: 잘린형은 매칭 키가 아님)
+    Dim narrowNa As String
+    narrowNa = ws.Range("A1").Text
+    LogShim.AssertEq "cs_errbool_premise", True, (narrowNa <> "#N/A")
+
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A4"), "T")
+
+    LogShim.AssertEq "cs_errbool_na", True, asset.Displays.Contains("#N/A")
+    LogShim.AssertEq "cs_errbool_div", True, asset.Displays.Contains("#DIV/0!")
+    LogShim.AssertEq "cs_errbool_true", True, asset.Displays.Contains("TRUE")
+    LogShim.AssertEq "cs_errbool_false", True, asset.Displays.Contains("FALSE")
+    LogShim.AssertEq "cs_errbool_no_clip", False, asset.Displays.Contains(narrowNa)
+
+    DropSheet
+End Sub
+
 ' @desc 에러 셀과 빈 열의 방어 동작을 검증함
 Public Sub Test_CS_ErrorAndEmpty()
     Dim ws As Worksheet

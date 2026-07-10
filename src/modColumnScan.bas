@@ -3,11 +3,14 @@ Attribute VB_Name = "modColumnScan"
 ' @depends clsColAsset, clsColSig, clsSet, modLogger
 Option Explicit
 
-' 표시 키 규칙 (실측: AutoFilterTest gap-probe-findings.md P4/P6/P7):
-'  - 서식에 * 포함: TEXT(Value2, fmtLocal에서 ! 제거) 접힌형이 매칭 키
-'  - 그 외: Range.Text가 매칭 키. 단 폭에 잘린 형은 AutoFit 재독 후 폭 복원:
-'    #-런(고정서식은 #####로 잘림) + General 전체(과학표기/반올림으로 잘림, # 없음, P7)
-'  - 텍스트/에러/불리언 셀은 .Text 그대로, 빈칸은 키 없음(BlankCount)
+' 표시 키 규칙 (실측: AutoFilterTest gap-probe-findings.md P4/P6/P7/P11/P12):
+'  - 매칭 키는 폭/CF/화면 무관 캐논형 - (값, 서식)의 순수 함수 (P7/P11/P12)
+'  - 숫자 셀: TEXT(Value2, 렌더서식). * 패딩은 ! 제거 접힌형(P6), General은 영문
+'    "General" 매핑, @서식 숫자 셀은 General 규칙(P11)
+'  - 텍스트 셀: 자기 자신(CStr). 불리언: "TRUE"/"FALSE"(P12). 에러: 코드 매핑
+'    (고전 7종 영문 불변 - 신형/미지 코드는 셀별 .Text 폴백). 빈칸: 키 없음(BlankCount)
+'  - 셀별 .Text는 폴백에서만: 화면 프록시라 폭 잘림 + 행숨김 이력 저하(행위치 비례,
+'    ProbeTextDecay 실측)에 노출되므로 캐논 경로가 항상 우선한다
 '
 ' 성능 계약 (지연 우주 - docs/tasks/2026-07-10_lazy_universe_design.md):
 '  - 균일/혼합 블록: 블록별 Evaluate(TEXT) 1회 벌크 렌더(RenderBlockBulk)로 행별
@@ -127,11 +130,8 @@ Public Function BuildAssetFromSig(ByVal rngCol As Range, ByVal sID As String, _
     End If
 
     ' 셀별 렌더 경로: 병리적 서식 / 벌크 실패 / 테스트 훅.
-    ' CF 유무 1회 판정(O(1)): CF 있으면 숫자 셀은 .Text(CF 추종) 대신
-    ' 기본서식 WText로 렌더한다 (P9: AutoFilter는 CF 아닌 기본서식 캐논형만 매칭).
-    Dim hasCF As Boolean
-    hasCF = HasConditionalFormat(rTarget)
-    blankCount = BuildPerCell(rTarget, v2, nRows, vm, rowByKey, hasCF)
+    ' 키 규칙은 벌크와 동일한 캐논(fmtLocal + WText) - CF 분기 불요(WText는 CF 무관).
+    blankCount = BuildPerCell(rTarget, v2, nRows, vm, rowByKey)
 
     ' 표시 집합: 행수 지도의 키가 곧 고유 표시 키
     displays.LoadFromArray rowByKey.Keys
@@ -144,9 +144,10 @@ End Function
 ' 지연 우주(docs/tasks/2026-07-10_lazy_universe_design.md)의 기본 렌더 경로.
 ' keys(firstRow..lastRow)에 표시키를 채운다(빈칸은 "" + blankCount 가산).
 ' 표시 키 규칙(모듈 헤더)의 벌크판: 텍스트 셀은 자기 자신, * 패딩은 접힌형 TEXT,
-' General은 영문 "General" 매핑, ! 제거. CF 무관(TEXT는 기본서식 캐논형 - P9).
-' 폭 무관(P7 캐논형)이라 AutoFit 재독 자체가 없다. 실측 91,235행 COM 1회 = 113ms.
-' 에러 셀(TEXT가 에러 전파)/[색] 등 TEXT 빈문자열/불리언/@서식 숫자 셀만 셀별 .Text 폴백.
+' General은 영문 "General" 매핑, ! 제거, @서식 숫자 셀은 General 렌더(P11 캐논).
+' CF 무관(TEXT는 기본서식 캐논형 - P9). 폭 무관(P7/P11 캐논형)이라 AutoFit 재독 없음.
+' 실측 91,235행 COM 1회 = 113ms. 에러 셀은 코드 매핑(ErrKey, P12) - 미지 코드/
+' TEXT 빈문자열([색])만 셀별 .Text 폴백. 불리언은 "TRUE"/"FALSE"(P12).
 ' False 반환(Evaluate 실패/수식 255자 초과) 시 호출부가 셀별 렌더(BuildPerCell)로 폴백.
 ' 정합 게이트: Test_CS_BulkRenderEquiv가 셀별 오라클과 전수 동치를 고정.
 Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
@@ -155,23 +156,23 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
                                ByRef blankCount As Long) As Boolean
     Dim cleanFmt As String
     cleanFmt = Replace(fmt, "!", "")
+    ' @ 블록의 숫자 셀은 General 규칙으로 표시된다(P11) - General로 벌크 렌더
     Dim fmtRender As String
-    fmtRender = RenderFmt(fmt, cleanFmt, IsGeneralFmt(fmt))
-    ' 텍스트 서식(@) 열의 숫자 셀은 TEXT(v,"@")가 실표시와 다를 수 있어 벌크 부적용(셀별)
-    Dim isTextFmt As Boolean
-    isTextFmt = (fmt = "@")
+    If fmt = "@" Then
+        fmtRender = "General"
+    Else
+        fmtRender = RenderFmt(fmt, cleanFmt, IsGeneralFmt(fmt))
+    End If
 
     ' 숫자 셀이 하나라도 있을 때만 Evaluate 1회 (텍스트/빈칸뿐이면 렌더 불요)
     Dim needRender As Boolean
     Dim i As Long
-    If Not isTextFmt Then
-        For i = firstRow To lastRow
-            If VarType(v2(i, 1)) = vbDouble Then
-                needRender = True
-                Exit For
-            End If
-        Next i
-    End If
+    For i = firstRow To lastRow
+        If VarType(v2(i, 1)) = vbDouble Then
+            needRender = True
+            Exit For
+        End If
+    Next i
 
     Dim rendered As Variant
     If needRender Then
@@ -206,9 +207,13 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
             keys(i) = ""                                 ' TEXT(빈칸)="0" 함정: 렌더값 무시
             blankCount = blankCount + 1
         ElseIf IsError(val) Then
-            keys(i) = rTarget.Cells(i, 1).Text           ' 에러: TEXT가 에러 전파 - 셀별
+            k = ErrKey(val)                              ' 캐논 에러 문자열 (P12)
+            If Len(k) = 0 Then k = rTarget.Cells(i, 1).Text   ' 신형/미지 코드만 셀별
+            keys(i) = k
         ElseIf VarType(val) = vbString Then
             keys(i) = CStr(val)                          ' 텍스트: 자기 자신 (TEXT는 날짜문자열 강제 위험)
+        ElseIf VarType(val) = vbBoolean Then
+            If val Then keys(i) = "TRUE" Else keys(i) = "FALSE"   ' 캐논 (P12)
         ElseIf VarType(val) = vbDouble And needRender Then
             j = i - firstRow + 1
             If IsError(rendered(j, 1)) Then
@@ -219,11 +224,36 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
                 keys(i) = k
             End If
         Else
-            keys(i) = rTarget.Cells(i, 1).Text           ' 불리언/@서식 숫자 등: 셀별 (드묾)
+            keys(i) = rTarget.Cells(i, 1).Text           ' 방어적 잔여 (Value2는 위 5형뿐)
         End If
     Next i
 
     RenderBlockBulk = True
+End Function
+
+' 에러 Variant의 캐논 표시 문자열 반환 (P12: 매칭 키는 폭 무관 캐논 문자열).
+' 고전 7종은 표시 문자열이 로캘 불변임을 실측(ProbeDisplayMap). 조회 키는
+' CStr(CVErr(코드))로 런타임 파생 - CStr 에러 문자열의 로캘에 의존하지 않는다.
+' 미지/신형 코드(#SPILL! 등 - 표시가 로캘화됨)는 빈 문자열 반환, 호출부가 .Text 폴백.
+Private Function ErrKey(ByRef v As Variant) As String
+    Static pMap As Object
+    On Error GoTo Unknown
+    If pMap Is Nothing Then
+        Set pMap = CreateObject("Scripting.Dictionary")
+        pMap(CStr(CVErr(2000))) = "#NULL!"
+        pMap(CStr(CVErr(2007))) = "#DIV/0!"
+        pMap(CStr(CVErr(2015))) = "#VALUE!"
+        pMap(CStr(CVErr(2023))) = "#REF!"
+        pMap(CStr(CVErr(2029))) = "#NAME?"
+        pMap(CStr(CVErr(2036))) = "#NUM!"
+        pMap(CStr(CVErr(2042))) = "#N/A"
+    End If
+    Dim sKey As String
+    sKey = CStr(v)
+    If pMap.exists(sKey) Then ErrKey = pMap(sKey)
+    Exit Function
+Unknown:
+    ErrKey = ""
 End Function
 
 ' @desc 값과 블록 서식 받아 우주 표시키 반환, 렌더 불가 시 빈 문자열 반환
@@ -231,7 +261,7 @@ End Function
 ' "이 값이 이 서식 블록에 있었다면 우주에 어떤 키로 존재하는가"를 재현한다.
 Public Function RenderValueKey(ByVal v As Double, ByVal fmt As String) As String
     If fmt = "@" Then
-        RenderValueKey = CStr(v)
+        RenderValueKey = SafeWText(v, "General")   ' @숫자 = General 캐논 (P11, 우주와 대칭)
     Else
         RenderValueKey = SafeWText(v, RenderFmt(fmt, Replace(fmt, "!", ""), IsGeneralFmt(fmt)))
     End If
@@ -264,45 +294,41 @@ Private Function TryPartition(ByVal rTarget As Range, ByVal firstRow As Long, _
     End If
 End Function
 
-' 셀별 폴백(과편성 서식 전용): 같은 값도 셀마다 다르게 표시될 수 있어 셀별 렌더.
+' 셀별 폴백(과편성 서식 전용): 셀마다 서식이 달라 블록 벌크가 불가한 경우.
+' 키 규칙은 벌크와 동일한 캐논(fmtLocal + WText) - .Text를 주 경로로 쓰지 않아
+' 폭 잘림/CF/행숨김 이력 저하와 무관하다(P7/P11/P12 + ProbeTextDecay 실측).
+' fmtLocal은 이력 저하 면역 실측(ProbeDisplayMap). AutoFit 재독은 소멸.
 Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
                              ByVal nRows As Long, ByVal vm As Object, _
-                             ByVal rowByKey As Object, ByVal hasCF As Boolean) As Long
+                             ByVal rowByKey As Object) As Long
     Dim keys() As String
     ReDim keys(1 To nRows)
 
-    Dim refit() As Boolean
-    ReDim refit(1 To nRows)
-    Dim i As Long, needRefit As Boolean
+    Dim i As Long
     Dim c As Range, f As String
     For i = 1 To nRows
         If IsEmpty(v2(i, 1)) Then
             keys(i) = ""
         ElseIf IsError(v2(i, 1)) Then
-            keys(i) = rTarget.Cells(i, 1).Text
-        Else
+            keys(i) = ErrKey(v2(i, 1))                   ' 캐논 에러 문자열 (P12)
+            If Len(keys(i)) = 0 Then keys(i) = rTarget.Cells(i, 1).Text
+        ElseIf VarType(v2(i, 1)) = vbString Then
+            keys(i) = CStr(v2(i, 1))                     ' 텍스트: 자기 자신
+        ElseIf VarType(v2(i, 1)) = vbBoolean Then
+            If v2(i, 1) Then keys(i) = "TRUE" Else keys(i) = "FALSE"   ' 캐논 (P12)
+        ElseIf VarType(v2(i, 1)) = vbDouble Then
             Set c = rTarget.Cells(i, 1)
             f = SafeFmtLocal(c)
-            If InStr(f, "*") > 0 And VarType(v2(i, 1)) = vbDouble Then
-                keys(i) = SafeWText(v2(i, 1), Replace(f, "!", ""))
-                If Len(keys(i)) = 0 Then keys(i) = c.Text
-            ElseIf hasCF And VarType(v2(i, 1)) = vbDouble Then
-                ' CF 열의 숫자: 기본서식 WText로 렌더(.Text는 CF 추종, 폭 독립)
-                keys(i) = SafeWText(v2(i, 1), RenderFmt(f, Replace(f, "!", ""), IsGeneralFmt(f)))
-                If Len(keys(i)) = 0 Then keys(i) = c.Text
+            If f = "@" Then
+                keys(i) = SafeWText(v2(i, 1), "General") ' @숫자 = General 캐논 (P11)
             Else
-                keys(i) = c.Text
-                ' 폭에 잘린 형 방어: General(과학표기/반올림) + #-런(고정서식)
-                If VarType(v2(i, 1)) = vbDouble Then
-                    If IsGeneralFmt(f) Or IsHashRun(keys(i)) Then
-                        refit(i) = True
-                        needRefit = True
-                    End If
-                End If
+                keys(i) = SafeWText(v2(i, 1), RenderFmt(f, Replace(f, "!", ""), IsGeneralFmt(f)))
             End If
+            If Len(keys(i)) = 0 Then keys(i) = c.Text    ' [색] 등 WText 빈문자열 폴백
+        Else
+            keys(i) = rTarget.Cells(i, 1).Text           ' 방어적 잔여 (Value2는 위 5형뿐)
         End If
     Next i
-    If needRefit Then FixHashKeys rTarget, keys, refit, nRows
 
     Dim blankCount As Long, k As String
     For i = 1 To nRows
@@ -338,50 +364,10 @@ Private Function ResolveTarget(ByVal rngCol As Range) As Range
     Set ResolveTarget = rngCol.Columns(1)
 End Function
 
-' 폭에 잘린 키를 AutoFit 재독으로 캐논형 복구하고 열 폭을 복원한다 (셀별 폴백용).
-Private Sub FixHashKeys(ByVal rTarget As Range, ByRef keys() As String, _
-                       ByRef refit() As Boolean, ByVal nRows As Long)
-    Dim col As Range
-    Set col = rTarget.EntireColumn
-
-    Dim wPrev As Double
-    wPrev = col.ColumnWidth
-
-    On Error GoTo Restore
-    col.AutoFit
-
-    Dim i As Long
-    For i = 1 To nRows
-        If refit(i) Then keys(i) = rTarget.Cells(i, 1).Text
-    Next i
-
-Restore:
-    On Error Resume Next
-    col.ColumnWidth = wPrev
-    On Error GoTo 0
-End Sub
-
-' 문자열이 # 문자만으로 이루어져 있는지 확인한다(좁은 열 표시).
-Private Function IsHashRun(ByVal s As String) As Boolean
-    If Len(s) = 0 Then Exit Function
-    Dim i As Long
-    For i = 1 To Len(s)
-        If Mid$(s, i, 1) <> "#" Then Exit Function
-    Next i
-    IsHashRun = True
-End Function
-
-' General 서식(로컬 "G/표준" 또는 "General")인지 확인한다. General은 폭에 따라
-' 과학표기/반올림으로 잘려 #-런이 아닌 잘못된 키를 낼 수 있어 AutoFit 재독이 필요하다.
+' General 서식(로컬 "G/표준" 또는 "General")인지 확인한다. General은 TEXT가
+' 로컬 토큰을 미해석하므로 영문 "General"로 매핑해 렌더한다(RenderFmt).
 Private Function IsGeneralFmt(ByVal fmt As String) As Boolean
     IsGeneralFmt = (fmt = "General") Or (fmt = "G/" & ChrW(&HD45C) & ChrW(&HC900))
-End Function
-
-' 범위에 조건부서식(CF)이 걸려 있는지 1회 판정한다(있으면 숫자 렌더를 기본서식 WText로 전환).
-Private Function HasConditionalFormat(ByVal rTarget As Range) As Boolean
-    On Error Resume Next
-    HasConditionalFormat = (rTarget.FormatConditions.Count > 0)
-    On Error GoTo 0
 End Function
 
 ' CF 셀 WText 렌더용 서식 결정: General은 로컬 토큰(G/표준)을 TEXT가 미해석하므로 영문 "General",
