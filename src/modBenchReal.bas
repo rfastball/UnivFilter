@@ -1501,6 +1501,173 @@ Fail:
     Application.EnableEvents = prevEv
 End Sub
 
+' @desc .Text 우회 후보 검증: 에러/불리언 매핑 동치, @숫자 폭 의존, fmtLocal 이력 저하 기록함
+Public Sub ProbeDisplayMap()
+    LogShim.Reset
+    Dim prevEv As Boolean
+    prevEv = Application.EnableEvents
+    Application.EnableEvents = False
+
+    On Error GoTo Fail
+    Dim wb As Workbook
+    Set wb = Workbooks.Add
+    Utilities.OptimizedMode True
+    Dim ws As Worksheet
+    Set ws = wb.Sheets(1)
+
+    ' 1) 에러 표시 매핑 동치: CVErr 코드 -> 고정 문자열이 .Text와 일치하는가 (넓은/좁은 열)
+    Dim codes As Variant
+    codes = Array(2000, 2007, 2015, 2023, 2029, 2036, 2042, 2043, 2045, 2046, 2047, 2048, 2049, 2050)
+    Dim assigned As New Collection      ' Array(row, code)
+    Dim i As Long
+    ws.Columns(1).ColumnWidth = 40
+    For i = 0 To UBound(codes)
+        On Error Resume Next
+        ws.Cells(i + 1, 1).Value = CVErr(codes(i))
+        If Err.Number = 0 Then assigned.Add Array(i + 1, CLng(codes(i)))
+        Err.Clear
+        On Error GoTo Fail
+    Next i
+    Dim nOkWide As Long, nMisWide As Long, sMis As String
+    Dim itm As Variant, sMap As String, sTxt As String
+    For Each itm In assigned
+        sMap = ErrDisplay(CLng(itm(1)))
+        sTxt = ws.Cells(itm(0), 1).Text
+        If sMap = sTxt Then
+            nOkWide = nOkWide + 1
+        Else
+            nMisWide = nMisWide + 1
+            sMis = sMis & "[" & itm(1) & ":txt=" & sTxt & " map=" & sMap & "]"
+        End If
+    Next itm
+    ws.Columns(1).ColumnWidth = 3
+    Dim nOkNarrow As Long, nMisNarrow As Long
+    For Each itm In assigned
+        If ErrDisplay(CLng(itm(1))) = ws.Cells(itm(0), 1).Text Then
+            nOkNarrow = nOkNarrow + 1
+        Else
+            nMisNarrow = nMisNarrow + 1
+        End If
+    Next itm
+    LogShim.LogEvent "dispmap_err", _
+        Array("tried", "assigned", "okWide", "misWide", "okNarrow", "misNarrow", "misDetail"), _
+        Array(UBound(codes) + 1, assigned.Count, nOkWide, nMisWide, nOkNarrow, nMisNarrow, sMis)
+
+    ' 2) 불리언 표시: TRUE/FALSE 고정 매핑 동치 (넓은/좁은 열)
+    ws.Columns(2).ColumnWidth = 20
+    ws.Cells(1, 2).Value = True
+    ws.Cells(2, 2).Value = False
+    Dim bWideT As String, bWideF As String, bNarrowT As String
+    bWideT = ws.Cells(1, 2).Text
+    bWideF = ws.Cells(2, 2).Text
+    ws.Columns(2).ColumnWidth = 3
+    bNarrowT = ws.Cells(1, 2).Text
+    LogShim.LogEvent "dispmap_bool", _
+        Array("wideTrue", "wideFalse", "narrowTrue"), _
+        Array(bWideT, bWideF, bNarrowT)
+
+    ' 3) @서식 숫자: 폭별 .Text vs WText(General) vs CStr (P11 프로브 설계용 관측)
+    ws.Cells(1, 3).Value = 212970000
+    ws.Cells(1, 3).NumberFormat = "@"      ' 값 먼저, 서식 나중 (fixture 재현)
+    ws.Columns(3).ColumnWidth = 30
+    Dim atWide As String
+    atWide = ws.Cells(1, 3).Text
+    ws.Columns(3).ColumnWidth = 8
+    Dim atNarrow As String
+    atNarrow = ws.Cells(1, 3).Text
+    LogShim.LogEvent "dispmap_at", _
+        Array("wideText", "narrowText", "wtextGeneral", "cstr"), _
+        Array(atWide, atNarrow, _
+              Application.WorksheetFunction.Text(212970000#, "General"), CStr(212970000#))
+
+    ' 4) fmtLocal/.Text 단가의 이력 저하 대조 (20k행, 숨김 전/후 x 앞/뒤 2000셀)
+    Dim ws2 As Worksheet
+    Set ws2 = wb.Sheets.Add
+    Const N As Long = 20000
+    Dim arr() As Variant
+    ReDim arr(1 To N, 1 To 1)
+    For i = 1 To N
+        arr(i, 1) = i * 7
+    Next i
+    Dim rng As Range
+    Set rng = ws2.Range(ws2.Cells(1, 1), ws2.Cells(N, 1))
+    rng.NumberFormat = "#,##0"
+    rng.Value2 = arr
+
+    Dim preTxtF As Double, preTxtB As Double, preFmtF As Double, preFmtB As Double
+    preTxtF = OpPass(ws2, 1, 2000, True)
+    preTxtB = OpPass(ws2, N - 1999, N, True)
+    preFmtF = OpPass(ws2, 1, 2000, False)
+    preFmtB = OpPass(ws2, N - 1999, N, False)
+
+    rng.EntireRow.Hidden = True
+    rng.EntireRow.Hidden = False
+
+    Dim postTxtF As Double, postTxtB As Double, postFmtF As Double, postFmtB As Double
+    postTxtF = OpPass(ws2, 1, 2000, True)
+    postTxtB = OpPass(ws2, N - 1999, N, True)
+    postFmtF = OpPass(ws2, 1, 2000, False)
+    postFmtB = OpPass(ws2, N - 1999, N, False)
+
+    LogShim.LogEvent "dispmap_decay", _
+        Array("preTxtFrontMs", "preTxtBackMs", "preFmtFrontMs", "preFmtBackMs", _
+              "postTxtFrontMs", "postTxtBackMs", "postFmtFrontMs", "postFmtBackMs"), _
+        Array(Format$(preTxtF, "0.0"), Format$(preTxtB, "0.0"), _
+              Format$(preFmtF, "0.0"), Format$(preFmtB, "0.0"), _
+              Format$(postTxtF, "0.0"), Format$(postTxtB, "0.0"), _
+              Format$(postFmtF, "0.0"), Format$(postFmtB, "0.0"))
+
+    Utilities.OptimizedMode False
+    wb.Close SaveChanges:=False
+    Application.EnableEvents = prevEv
+    Exit Sub
+Fail:
+    Utilities.OptimizedMode False
+    On Error Resume Next
+    wb.Close SaveChanges:=False
+    On Error GoTo 0
+    LogShim.LogEvent "dispmap_probe_err", Array("num", "desc"), Array(Err.Number, Err.Description)
+    Application.EnableEvents = prevEv
+End Sub
+
+' 에러코드 -> 표시 문자열 고정 매핑 (우회 후보 - 프로브가 .Text와 동치 검증)
+Private Function ErrDisplay(ByVal code As Long) As String
+    Select Case code
+        Case 2000: ErrDisplay = "#NULL!"
+        Case 2007: ErrDisplay = "#DIV/0!"
+        Case 2015: ErrDisplay = "#VALUE!"
+        Case 2023: ErrDisplay = "#REF!"
+        Case 2029: ErrDisplay = "#NAME?"
+        Case 2036: ErrDisplay = "#NUM!"
+        Case 2042: ErrDisplay = "#N/A"
+        Case 2043: ErrDisplay = "#GETTING_DATA"
+        Case 2045: ErrDisplay = "#SPILL!"
+        Case 2046: ErrDisplay = "#CONNECT!"
+        Case 2047: ErrDisplay = "#BLOCKED!"
+        Case 2048: ErrDisplay = "#UNKNOWN!"
+        Case 2049: ErrDisplay = "#FIELD!"
+        Case 2050: ErrDisplay = "#CALC!"
+        Case Else: ErrDisplay = "Error " & code
+    End Select
+End Function
+
+' [rowFrom,rowTo] 셀별 연산 1패스 소요(ms): bText=True면 .Text, False면 NumberFormatLocal.
+Private Function OpPass(ByVal ws As Worksheet, ByVal rowFrom As Long, _
+                        ByVal rowTo As Long, ByVal bText As Boolean) As Double
+    Dim t0 As Single, i As Long, s As String
+    t0 = Timer
+    If bText Then
+        For i = rowFrom To rowTo
+            s = ws.Cells(i, 1).Text
+        Next i
+    Else
+        For i = rowFrom To rowTo
+            s = ws.Cells(i, 1).NumberFormatLocal
+        Next i
+    End If
+    OpPass = (Timer - t0) * 1000!
+End Function
+
 ' 전행 셀별 .Text 1패스 소요(ms)를 잰다.
 Private Function TextPass(ByVal body As Range, ByVal nRows As Long) As Double
     Dim t0 As Single, i As Long, s As String
