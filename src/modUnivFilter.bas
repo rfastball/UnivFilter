@@ -1,6 +1,6 @@
 Attribute VB_Name = "modUnivFilter"
 ' @desc 진입 UI(버튼/메뉴)와 폼 기동 담당
-' @depends frmFilter01, modLogger
+' @depends frmFilter01, modCache, modLogger
 Option Explicit
 
 ' ==============================================================================
@@ -115,12 +115,17 @@ Sub ShowUniversalFilter()
         .InjectHeaderName = targetHeader        ' 헤더명 주입
         .InjectRelativeCol = relativeCol        ' 상대 열 번호 주입
         
-        ' 자산 취득은 파이프라인(modFilterRun)이 실행 시점에 캐시에서 수행한다
         G_OpenForms.Add frmNew, formKey         ' 관리 대장 등록
-        
+
         MoveFormToCursor_API frmNew             ' 마우스 위치로 이동
         .Show vbModeless
     End With
+
+    ' 프리웜: 사용자가 입력하는 동안 콜드 스캔 선행. 실행 시점의 자산 취득은
+    ' 파이프라인(modFilterRun)이 캐시 지문 재검증으로 수행하므로 낡아도 무해.
+    On Error Resume Next
+    modCache.GetColumnAsset targetBodyRng
+    On Error GoTo 0
 End Sub
 
 ' ------------------------------------------------------------------------------

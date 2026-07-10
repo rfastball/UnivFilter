@@ -1,30 +1,28 @@
 Attribute VB_Name = "modShortcuts"
 ' @desc 전역 단축키 핸들러와 폼 주입 담당
-' @depends frmFilter01, modUnivFilter, modFilterRun, modReport, ClipboardAPI, AutoCloseMsgAPI
+' @depends frmFilter01, modUnivFilter, modFilterRun, modCache, modReport, ClipboardAPI, AutoCloseMsgAPI
 Option Explicit
 
 ' ==========================================================
 ' [Ctrl + Shift + Q] 퀵 핸들러 (Quick Mode)
 ' 항상 즉시 실행. 매칭 0건이면 아무것도 적용하지 않고 알림만.
+' 폼 미사용: 대상 해석은 ResolveFilterTarget - 폼 인스턴스화 고정비(~16ms) 제거.
 ' ==========================================================
 Public Sub UnivFilter_QuickHandler()
-    Dim frm As New frmFilter01
+    Dim rngBody As Range, rngArea As Range
+    Dim lField As Long, sHeader As String
+    If Not ResolveFilterTarget(rngBody, rngArea, lField, sHeader) Then Exit Sub
+
     Dim sClip As String
-
-    ' 1. 기본 준비 (범위 주입용 폼 인스턴스 재활용)
-    If Not SetupFormData(frm) Then Unload frm: Exit Sub
-
     sClip = ClipboardAPI.GetClipboardText()
     If Trim(sClip) = "" Then
         AutoCloseMsgBox_Popup "클립보드가 비어 있습니다.", 1, "알림"
-        Unload frm: Exit Sub
+        Exit Sub
     End If
 
     ' 2. 즉시 실행 (완전일치/포함/초기화 고정)
     Dim result As Object
-    Set result = modFilterRun.RunQuickFilter( _
-                    frm.InjectBodyRange, frm.InjectFilterArea, _
-                    frm.InjectRelativeCol, sClip)
+    Set result = modFilterRun.RunQuickFilter(rngBody, rngArea, lField, sClip)
 
     ' 3. 결과 알림: 팝업은 실행 가능 정보(오류/0건/누락)만.
     ' 자동보정은 결정론 동작이라 결과가 곧 피드백 - 상태바 한 줄로만 알린다.
@@ -44,8 +42,6 @@ Public Sub UnivFilter_QuickHandler()
     If result("Ok") And Len(result("ScanNote")) > 0 Then
         AutoCloseMsgBox_Popup result("ScanNote"), 3, "스캔 안내"
     End If
-
-    Unload frm
 End Sub
 
 ' ==========================================================
@@ -55,7 +51,12 @@ Public Sub UnivFilter_UIHandler()
     Dim frm As New frmFilter01
     If SetupFormData(frm) Then
         modUnivFilter.MoveFormToCell_API frm, ActiveCell '폼 띄우기 전 위치이동
-        frm.Show
+        frm.Show vbModeless
+        ' 프리웜: 사용자가 입력하는 동안 콜드 스캔 선행 (지문 계약이 실행 시점에
+        ' 재검증하므로 낡아도 무해 - 최악이 재스캔 1회로 현행과 동일)
+        On Error Resume Next
+        modCache.GetColumnAsset frm.InjectBodyRange
+        On Error GoTo 0
     Else
         Unload frm
     End If
@@ -75,9 +76,11 @@ Public Function StatusLine(ByVal result As Object) As String
 End Function
 
 ' ==========================================================
-' [Helper] 현재 열 정보를 폼에 주입하는 공통 로직
+' [Helper] 현재 열의 필터 대상 해석 (퀵/폼 공용 리졸버)
 ' ==========================================================
-Private Function SetupFormData(ByRef frm As frmFilter01) As Boolean
+' @desc 활성 셀 기준 본문/영역/상대열/헤더 해석해 성공 여부 반환, 실패 시 알림 팝업
+Private Function ResolveFilterTarget(ByRef rngBody As Range, ByRef rngArea As Range, _
+                                     ByRef lField As Long, ByRef sHeader As String) As Boolean
     Dim ws As Worksheet: Set ws = ActiveSheet
     Dim targetCell As Range: Set targetCell = ActiveCell ' 현재 포커스된 셀 기준
     Dim lo As ListObject: Set lo = targetCell.ListObject
@@ -85,18 +88,18 @@ Private Function SetupFormData(ByRef frm As frmFilter01) As Boolean
     Dim relCol As Long
 
     ' 기본값은 실패(False)로 설정
-    SetupFormData = False
+    ResolveFilterTarget = False
 
     ' 1. 우선순위: 표(Table) 내부인지 확인
     If Not lo Is Nothing Then
         If lo.DataBodyRange Is Nothing Then Exit Function ' 빈 표 방어
         relCol = targetCell.Column - lo.Range.Column + 1
-        Set frm.InjectFilterArea = lo.Range
-        Set frm.InjectBodyRange = lo.DataBodyRange.Columns(relCol)
-        frm.InjectHeaderName = lo.HeaderRowRange.Cells(1, relCol).Value
-        frm.InjectRelativeCol = relCol
+        Set rngArea = lo.Range
+        Set rngBody = lo.DataBodyRange.Columns(relCol)
+        sHeader = lo.HeaderRowRange.Cells(1, relCol).Value
+        lField = relCol
 
-        SetupFormData = True
+        ResolveFilterTarget = True
         Exit Function
     End If
 
@@ -107,15 +110,15 @@ Private Function SetupFormData(ByRef frm As frmFilter01) As Boolean
         If Not Intersect(targetCell, filterRng) Is Nothing Then
             If filterRng.Rows.Count < 2 Then Exit Function ' 본문 없는 필터 방어
             relCol = targetCell.Column - filterRng.Column + 1
-            Set frm.InjectFilterArea = filterRng
+            Set rngArea = filterRng
             ' 본문 = 필터 영역 자체에서 헤더 1행 제외 (영역 밖 End(xlUp) 재유도 금지:
             ' AutoFilter.Range의 경계가 실제 필터 대상의 진실이다)
-            Set frm.InjectBodyRange = filterRng.Columns(relCol).Offset(1, 0) _
-                                        .Resize(filterRng.Rows.Count - 1, 1)
-            frm.InjectHeaderName = ws.Cells(filterRng.Row, targetCell.Column).Value
-            frm.InjectRelativeCol = relCol
+            Set rngBody = filterRng.Columns(relCol).Offset(1, 0) _
+                                    .Resize(filterRng.Rows.Count - 1, 1)
+            sHeader = ws.Cells(filterRng.Row, targetCell.Column).Value
+            lField = relCol
 
-            SetupFormData = True
+            ResolveFilterTarget = True
             Exit Function
         End If
     End If
@@ -123,4 +126,16 @@ Private Function SetupFormData(ByRef frm As frmFilter01) As Boolean
     ' 3. [최종 낙하 지점] 위 조건에 모두 해당하지 않는 경우에만 메시지 출력
     AutoCloseMsgBox_Popup "표(Table) 또는 자동 필터 범위 내에서 실행해 주세요.", 1, "UnivFilter 알림"
 
+End Function
+
+' 리졸버 결과를 폼에 주입한다 (폼 모드 전용).
+Private Function SetupFormData(ByRef frm As frmFilter01) As Boolean
+    Dim rngBody As Range, rngArea As Range
+    Dim lField As Long, sHeader As String
+    If Not ResolveFilterTarget(rngBody, rngArea, lField, sHeader) Then Exit Function
+    Set frm.InjectFilterArea = rngArea
+    Set frm.InjectBodyRange = rngBody
+    frm.InjectHeaderName = sHeader
+    frm.InjectRelativeCol = lField
+    SetupFormData = True
 End Function
