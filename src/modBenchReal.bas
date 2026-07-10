@@ -1824,6 +1824,146 @@ Fail:
     Application.EnableEvents = prevEv
 End Sub
 
+' @desc 파이프라인 고정비 인벤토리: 폼/토글/리셋/dict/클립보드/상태바 항목별 단가 기록함
+' (Evaluate 밖 오버헤드의 감량 여지 판정용 - quickbench의 other/forminit 분해)
+Public Sub ProbeFixedOverheads()
+    LogShim.Reset
+    Dim prevEv As Boolean
+    prevEv = Application.EnableEvents
+    Application.EnableEvents = False
+
+    On Error GoTo Fail
+    Dim wb As Workbook
+    Set wb = Workbooks.Open(FixturePath())
+    Utilities.OptimizedMode True
+
+    Dim ws As Worksheet
+    Set ws = wb.Sheets("DW")
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    Dim area As Range, body As Range
+    Set area = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, 6))
+    Set body = ws.Range(ws.Cells(2, 1), ws.Cells(lastRow, 1))
+    area.AutoFilter
+
+    Dim t0 As Single, i As Long
+
+    ' 1) 폼 인스턴스화 1회차/2회차 (퀵 핸들러의 숨은 고정비)
+    t0 = Timer
+    Dim frm1 As frmFilter01
+    Set frm1 = New frmFilter01
+    Dim formFirst As Double
+    formFirst = (Timer - t0) * 1000!
+    Unload frm1
+    Set frm1 = Nothing
+    t0 = Timer
+    Dim frm2 As frmFilter01
+    Set frm2 = New frmFilter01
+    Dim formSecond As Double
+    formSecond = (Timer - t0) * 1000!
+    Unload frm2
+    Set frm2 = Nothing
+
+    ' 2) OptimizedMode True/False 왕복 (RunFilter가 매 실행 지불)
+    Utilities.OptimizedMode False
+    t0 = Timer
+    For i = 1 To 10
+        Utilities.OptimizedMode True
+        Utilities.OptimizedMode False
+    Next i
+    Dim optMs As Double
+    optMs = (Timer - t0) * 1000! / 10#
+    Utilities.OptimizedMode True
+
+    ' 3) ResetFilters - 조건 없는 시트(no-op)와 조건 있는 시트(실해제)
+    modApply.ResetFilters area
+    t0 = Timer
+    For i = 1 To 10
+        modApply.ResetFilters area
+    Next i
+    Dim resetNoop As Double
+    resetNoop = (Timer - t0) * 1000! / 10#
+
+    Dim firstKey As String
+    firstKey = FirstDisplay(body)
+    t0 = Timer
+    For i = 1 To 5
+        area.AutoFilter Field:=1, Criteria1:=Array(firstKey), Operator:=xlFilterValues
+        modApply.ResetFilters area
+    Next i
+    Dim applyResetPair As Double
+    applyResetPair = (Timer - t0) * 1000! / 5#
+
+    ' 4) Scripting.Dictionary 생성 x 실행당 개수(약 8개) 환산
+    t0 = Timer
+    Dim d As Object
+    For i = 1 To 400
+        Set d = CreateObject("Scripting.Dictionary")
+    Next i
+    Dim dictPer8 As Double
+    dictPer8 = (Timer - t0) * 1000! / 400# * 8#
+
+    ' 5) 클립보드 읽기 (퀵 핸들러 매 실행)
+    t0 = Timer
+    Dim sClip As String
+    For i = 1 To 10
+        sClip = ClipboardAPI.GetClipboardText()
+    Next i
+    Dim clipMs As Double
+    clipMs = (Timer - t0) * 1000! / 10#
+
+    ' 6) 상태바 설정/해제 (리포트 경로)
+    t0 = Timer
+    For i = 1 To 10
+        Application.StatusBar = "UnivFilter: probe"
+        Application.StatusBar = False
+    Next i
+    Dim sbarMs As Double
+    sbarMs = (Timer - t0) * 1000! / 10#
+
+    ' 7) 캐시 키 Address(External) (GetColumnAsset 매 호출)
+    t0 = Timer
+    Dim sKey As String
+    For i = 1 To 100
+        sKey = body.Address(External:=True)
+    Next i
+    Dim addrMs As Double
+    addrMs = (Timer - t0) * 1000! / 100#
+
+    ' 8) 지문 검증 웜 단가 재확인 (ComputeSignature + Matches)
+    modCache.ClearCache
+    Dim asset As clsColAsset
+    Set asset = modCache.GetColumnAsset(body)
+    t0 = Timer
+    For i = 1 To 10
+        Set asset = modCache.GetColumnAsset(body)
+    Next i
+    Dim sigVerify As Double
+    sigVerify = (Timer - t0) * 1000! / 10#
+
+    LogShim.LogEvent "fixedcost", _
+        Array("formFirstMs", "formSecondMs", "optToggleMs", "resetNoopMs", _
+              "applyResetPairMs", "dictPer8Ms", "clipReadMs", "statusBarMs", _
+              "addrExtMs", "sigVerifyHitMs"), _
+        Array(Format$(formFirst, "0.0"), Format$(formSecond, "0.0"), _
+              Format$(optMs, "0.00"), Format$(resetNoop, "0.00"), _
+              Format$(applyResetPair, "0.0"), Format$(dictPer8, "0.00"), _
+              Format$(clipMs, "0.00"), Format$(sbarMs, "0.00"), _
+              Format$(addrMs, "0.00"), Format$(sigVerify, "0.0"))
+
+    Utilities.OptimizedMode False
+    wb.Close SaveChanges:=False
+    Application.EnableEvents = prevEv
+    Exit Sub
+Fail:
+    Utilities.OptimizedMode False
+    On Error Resume Next
+    wb.Close SaveChanges:=False
+    On Error GoTo 0
+    LogShim.LogEvent "fixedcost_err", Array("num", "desc"), Array(Err.Number, Err.Description)
+    Application.EnableEvents = prevEv
+End Sub
+
 ' 전행 셀별 .Text 1패스 소요(ms)를 잰다.
 Private Function TextPass(ByVal body As Range, ByVal nRows As Long) As Double
     Dim t0 As Single, i As Long, s As String
