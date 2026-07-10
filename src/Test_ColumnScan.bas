@@ -379,10 +379,13 @@ Private Sub EquivCase(ws As Worksheet, ByVal cas As String, ByVal fmtEng As Stri
     AssertEquiv cas, ws.Range(ws.Cells(1, 1), ws.Cells(total, 1))
 End Sub
 
-' 현행 BuildAsset 산출물과 벌크 렌더 키 집계를 전수 대조한다.
+' 레거시 렌더 경로 산출물과 벌크 렌더 키 집계를 전수 대조한다(Stage B부터 기본이
+' 벌크라 훅으로 레거시를 강제 - 두 경로가 같은 우주를 내는지가 이 테스트의 존재 이유).
 Private Sub AssertEquiv(ByVal cas As String, ByVal rng As Range)
     Dim asset As clsColAsset
+    modColumnScan.G_ForceLegacyRender = True
     Set asset = modColumnScan.BuildAsset(rng, "T")
+    modColumnScan.G_ForceLegacyRender = False
 
     Dim sig As clsColSig
     Set sig = modColumnScan.ComputeSignature(rng)

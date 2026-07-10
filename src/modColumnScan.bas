@@ -20,6 +20,10 @@ Option Explicit
 
 Private Const PARTITION_BUDGET As Long = 2000
 
+' 테스트 훅: True면 벌크 렌더를 건너뛰고 레거시 고유값 렌더 경로를 강제한다.
+' (Test_CS_BulkRenderEquiv가 레거시/벌크 두 경로를 대조하는 용도 - 실사용 코드 사용 금지)
+Public G_ForceLegacyRender As Boolean
+
 ' @desc 열 범위 받아 지문(Value2/서식 관측) 반환, 빈 열이면 균일 빈 지문
 ' 스캔의 값싼 prefix: Value2 벌크 + NumberFormatLocal 1회(+혼합 시 TryPartition). 렌더/AutoFit 없음.
 Public Function ComputeSignature(ByVal rngCol As Range) As clsColSig
@@ -91,13 +95,40 @@ Public Function BuildAssetFromSig(ByVal rngCol As Range, ByVal sID As String, _
     Dim v2 As Variant
     v2 = sig.ContentVec
 
+    Dim blankCount As Long
+    Dim blk As Variant
+
+    ' 기본 경로(지연 우주 Stage B): 블록별 벌크 Evaluate(TEXT)로 행별 렌더키 배열을
+    ' 생산하고 집합/지도는 자산이 지연 구축한다. 벌크 실패(희소) 시 레거시로 폴백.
+    If (Not sig.IsPathological) And (Not G_ForceLegacyRender) Then
+        Dim keys() As String
+        ReDim keys(1 To nRows)
+        Dim okBulk As Boolean
+        If sig.IsMixed Then
+            okBulk = True
+            For Each blk In sig.Blocks
+                If Not RenderBlockBulk(rTarget, v2, CLng(blk(0)), CLng(blk(1)), _
+                                       CStr(blk(2)), keys, blankCount) Then
+                    okBulk = False
+                    Exit For
+                End If
+            Next blk
+        Else
+            okBulk = RenderBlockBulk(rTarget, v2, 1, nRows, sig.FmtUniform, keys, blankCount)
+        End If
+        If okBulk Then
+            asset.InitRendered keys, blankCount, nRows, sID, sig
+            Set BuildAssetFromSig = asset
+            Exit Function
+        End If
+        blankCount = 0                       ' 폴백: 레거시 경로가 다시 계수
+    End If
+
     ' 조건부서식(CF) 유무 1회 판정(O(1)): CF 있으면 숫자 셀은 .Text(CF 추종) 대신
     ' 기본서식 WText로 렌더한다 (P9: AutoFilter는 CF 아닌 기본서식 캐논형만 매칭).
     Dim hasCF As Boolean
     hasCF = HasConditionalFormat(rTarget)
 
-    Dim blankCount As Long
-    Dim blk As Variant
     If sig.IsPathological Then
         ' 과편성 서식: 셀별 폴백 (지문은 항상 재스캔 센티넬)
         blankCount = BuildPerCell(rTarget, v2, nRows, vm, rowByKey, hasCF)
