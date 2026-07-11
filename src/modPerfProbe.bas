@@ -1,6 +1,6 @@
 Attribute VB_Name = "modPerfProbe"
 ' @desc 스캔 병목 계측 일회용 프로브 담당
-' @depends modColumnScan, modCache, clsColSig, Utilities, LogShim
+' @depends modColumnScan, modCache, modMatch, clsColSig, clsColAsset, clsSet, Utilities, LogShim
 Option Explicit
 
 Private Const SHEET_NAME As String = "UF_PerfProbe"
@@ -490,6 +490,121 @@ Private Sub BenchLog(ByVal tag As String, ByVal metric As String, ByVal nRows As
         Array("case", "metric", "rows", "totalMs", "rep", "perOpMs"), _
         Array(tag, metric, nRows, Format$(totalMs, "0.0"), rep, Format$(perOp, "0.000"))
 End Sub
+
+' @desc 값 레인 COM 비용을 미스 수/블록 수 함수로 계측함(관측 (1) 검증 프로브)
+' modMatch.ExecuteScan은 미스 숫자 토큰마다 nCands x nBlocks회 RenderValueKey(COM
+' WorksheetFunction.Text)를 돈다. numeric_miss(값 레인 전부 가동) vs text_miss(값 레인
+' 미가동, COM 0회)의 동일 토큰수 델타가 값 레인 순비용이다. 3블록 혼합 열은 COM 3배 증폭.
+Public Sub RunValueLaneProbe()
+    LogShim.Reset
+    Utilities.OptimizedMode True
+    On Error GoTo Done
+
+    MeasureValueLane "uniform_1blk", False, 100000
+    MeasureValueLane "mixed_3blk", True, 90000
+
+Done:
+    Utilities.OptimizedMode False
+    DropSheet
+    LogShim.LogEvent "perf_done", Array("ok"), Array(Err.Number = 0)
+End Sub
+
+' 지정 열에서 토큰 종류(numeric_miss/text_miss/hit) x 토큰수별 Execute 소요를 잰다.
+Private Sub MeasureValueLane(ByVal tag As String, ByVal blockMixed As Boolean, ByVal nRows As Long)
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+
+    Dim arr() As Variant
+    ReDim arr(1 To nRows, 1 To 1)
+    Dim i As Long
+    For i = 1 To nRows
+        arr(i, 1) = (i Mod 5000) * 7          ' 저카디널리티(실사용 필터 열)
+    Next i
+    Dim rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(nRows, 1))
+    rng.Value2 = arr
+
+    Dim nBlk As Long
+    If blockMixed Then
+        Dim third As Long
+        third = nRows \ 3
+        ws.Range(ws.Cells(1, 1), ws.Cells(third, 1)).NumberFormat = "#,##0"
+        ws.Range(ws.Cells(third + 1, 1), ws.Cells(2 * third, 1)).NumberFormat = "0"
+        ws.Range(ws.Cells(2 * third + 1, 1), ws.Cells(nRows, 1)).NumberFormat = "$#,##0"
+        nBlk = 3
+    Else
+        rng.NumberFormat = "#,##0"
+        nBlk = 1
+    End If
+
+    modCache.ClearCache
+    Dim asset As clsColAsset
+    Set asset = modCache.GetColumnAsset(rng)   ' 콜드 스캔 1회(측정 밖) - 자산 확보
+
+    Dim sizes As Variant
+    sizes = Array(100, 500, 1000, 2000)
+    Dim s As Long, n As Long
+    For s = LBound(sizes) To UBound(sizes)
+        n = CLng(sizes(s))
+        MeasureExec tag, nBlk, "numeric_miss", n, BuildNumericMissTokens(n), asset
+        MeasureExec tag, nBlk, "text_miss", n, BuildTextMissTokens(n), asset
+        If Not blockMixed Then
+            MeasureExec tag, nBlk, "hit", n, BuildHitTokens(n), asset
+        End If
+    Next s
+End Sub
+
+' 토큰 배열로 Execute(완전일치)를 REP회 돌려 접근당 소요와 매칭수를 로그한다.
+Private Sub MeasureExec(ByVal tag As String, ByVal nBlk As Long, ByVal kind As String, _
+                        ByVal n As Long, ByVal tokens As Variant, ByVal asset As clsColAsset)
+    Const REP As Long = 3
+    Dim t0 As Single, j As Long
+    Dim outcome As Object
+    t0 = Timer
+    For j = 1 To REP
+        Set outcome = modMatch.Execute(tokens, asset, False)
+    Next j
+    Dim totalMs As Double
+    totalMs = (Timer - t0) * 1000!
+    Dim matched As clsSet
+    Set matched = outcome("Matched")
+    LogShim.LogEvent "vlane", _
+        Array("case", "blocks", "kind", "tokens", "perOpMs", "matched"), _
+        Array(tag, nBlk, kind, n, Format$(totalMs / REP, "0.0"), matched.Count)
+End Sub
+
+' 숫자꼴이지만 컬럼(<=34,993)에 부재한 대형 수 -> 값 레인 전부 미스(COM 최대 가동).
+Private Function BuildNumericMissTokens(ByVal n As Long) As Variant
+    Dim a() As Variant
+    ReDim a(0 To n - 1)
+    Dim i As Long
+    For i = 0 To n - 1
+        a(i) = CStr(1000000001# + i)
+    Next i
+    BuildNumericMissTokens = a
+End Function
+
+' 숫자 파싱 불가 텍스트 -> 값 레인 미가동(COM 0회). 동일 토큰수 numeric_miss의 대조군.
+Private Function BuildTextMissTokens(ByVal n As Long) As Variant
+    Dim a() As Variant
+    ReDim a(0 To n - 1)
+    Dim i As Long
+    For i = 0 To n - 1
+        a(i) = "ZZ" & i
+    Next i
+    BuildTextMissTokens = a
+End Function
+
+' 실제 표시값(#,##0 렌더) -> 표시 레인 적중(값 레인 미도달). pass1 스캔 순비용 기준선.
+Private Function BuildHitTokens(ByVal n As Long) As Variant
+    Dim a() As Variant
+    ReDim a(0 To n - 1)
+    Dim i As Long
+    For i = 0 To n - 1
+        a(i) = Application.WorksheetFunction.Text((i + 1) * 7, "#,##0")
+    Next i
+    BuildHitTokens = a
+End Function
 
 Private Function PrepSheet() As Worksheet
     Dim ws As Worksheet
