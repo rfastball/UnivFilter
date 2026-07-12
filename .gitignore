@@ -19,3 +19,8 @@ dist/
 test_*/
 archive/
 releases/
+
+# vbaflow:managed:start
+_dbg/
+dist/
+# vbaflow:managed:end
