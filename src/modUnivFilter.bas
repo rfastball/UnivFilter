@@ -1,6 +1,6 @@
 Attribute VB_Name = "modUnivFilter"
 ' @desc 진입 UI(버튼/메뉴)와 폼 기동 담당
-' @depends frmFilter01, modCache, modLogger
+' @depends frmFilter01, modCache, modLogger, AutoCloseMsgAPI, Utilities
 Option Explicit
 
 ' ==============================================================================
@@ -29,104 +29,97 @@ Public G_OpenForms As Collection        ' 폼 중복 실행 방지용 컬렉션
 ' ==============================================================================
 ' [Main] 유니버설 필터 진입점
 ' ==============================================================================
-Sub ShowUniversalFilter()
-    Dim ws As Worksheet: Set ws = ActiveSheet
+' @desc 호출원 셀을 식별해 필터 폼을 엶
+Public Sub ShowUniversalFilter()
     Dim targetCell As Range, btn As Shape
-    Dim btnCol As Long
-    
-    ' 1. [Target] 호출원(버튼/셀) 식별
     On Error Resume Next
     If TypeName(Application.Caller) = "String" Then
-        Set btn = ws.Shapes(Application.Caller)
+        Set btn = ActiveSheet.Shapes(Application.Caller)
         If Not btn Is Nothing Then Set targetCell = btn.TopLeftCell
     Else
-        If Not ActiveCell Is Nothing Then Set targetCell = ActiveCell
+        Set targetCell = ActiveCell
     End If
     On Error GoTo 0
-    
-    If targetCell Is Nothing Then MsgBox "대상 셀 식별 불가", vbExclamation: Exit Sub
-    btnCol = targetCell.Column
-    
-    ' 2. [Singleton] 폼 중복 실행 방지 (이미 열려있으면 활성화)
-    Dim formKey As String: formKey = ws.Name & "!" & btnCol
-    Dim openFrm As Object
-    
-    If G_OpenForms Is Nothing Then Set G_OpenForms = New Collection
-    
-    On Error Resume Next
-    Set openFrm = G_OpenForms(formKey)
-    On Error GoTo 0
-    
-    If Not openFrm Is Nothing Then
-        openFrm.Show vbModeless
-        On Error Resume Next
-        openFrm.Controls("txtFilterValues").SetFocus
-        On Error GoTo 0
+    OpenFilterForm targetCell, True
+End Sub
+
+' @desc 대상 셀 받아 공용 폼을 표시함, 대상 없으면 알림
+Public Sub OpenFilterForm(ByVal targetCell As Range, Optional ByVal atCursor As Boolean = False)
+    Dim frm As frmFilter01
+    Set frm = GetFilterForm(targetCell)
+    If frm Is Nothing Then
+        AutoCloseMsgAPI.AutoCloseMsgBox_Popup "표(Table) 또는 자동 필터 범위 내에서 실행해 주세요.", 1, "UnivFilter 알림"
         Exit Sub
     End If
-
-    ' 3. [Data Context] 표(ListObject) 또는 자동필터 범위 탐색
-    Dim lo As ListObject
-    Dim targetBodyRng As Range, filterAreaRng As Range
-    Dim targetHeader As String
-    Dim relativeCol As Long
-    Dim found As Boolean: found = False
-    
-    ' A) 표(Table) 확인
-    For Each lo In ws.ListObjects
-        If Not Intersect(ws.Columns(btnCol), lo.Range) Is Nothing Then
-            relativeCol = btnCol - lo.Range.Column + 1
-            If lo.ListRows.Count = 0 Then MsgBox "데이터 없음", vbExclamation: Exit Sub
-            
-            Set targetBodyRng = lo.ListColumns(relativeCol).DataBodyRange
-            Set filterAreaRng = lo.Range
-            targetHeader = lo.HeaderRowRange.Cells(1, relativeCol).Value
-            found = True: Exit For
-        End If
-    Next lo
-    
-    ' B) 자동필터(AutoFilter) 확인
-    If Not found And ws.AutoFilterMode Then
-        If Not Intersect(ws.Columns(btnCol), ws.AutoFilter.Range) Is Nothing Then
-            Dim afRng As Range: Set afRng = ws.AutoFilter.Range
-            relativeCol = btnCol - afRng.Column + 1
-            
-            If afRng.Rows.Count > 1 Then
-                Set targetBodyRng = afRng.Offset(1, 0).Resize(afRng.Rows.Count - 1, 1).Columns(relativeCol)
-                Set filterAreaRng = afRng
-                targetHeader = afRng.Cells(1, relativeCol).Value
-                found = True
-            Else
-                MsgBox "데이터 없음", vbExclamation: Exit Sub
-            End If
-        End If
+    If atCursor Then
+        MoveFormToCursor_API frm
+    Else
+        MoveFormToCell_API frm, targetCell
     End If
-    
-    If Not found Then MsgBox "필터 대상(표/자동필터)을 찾을 수 없습니다.", vbCritical: Exit Sub
-    
-    ' 4. [Init & Show] 폼 생성 및 표시
-    Dim frmNew As frmFilter01
-    Set frmNew = New frmFilter01
-    
-    With frmNew
-        .MyFormKey = formKey                    ' 닫을 때 컬렉션 제거용 Key
-        Set .InjectBodyRange = targetBodyRng    ' 데이터 범위 주입
-        Set .InjectFilterArea = filterAreaRng   ' 필터 영역 주입
-        .InjectHeaderName = targetHeader        ' 헤더명 주입
-        .InjectRelativeCol = relativeCol        ' 상대 열 번호 주입
-        
-        G_OpenForms.Add frmNew, formKey         ' 관리 대장 등록
-
-        MoveFormToCursor_API frmNew             ' 마우스 위치로 이동
-        .Show vbModeless
-    End With
-
-    ' 프리웜: 사용자가 입력하는 동안 콜드 스캔 선행. 실행 시점의 자산 취득은
-    ' 파이프라인(modFilterRun)이 캐시 지문 재검증으로 수행하므로 낡아도 무해.
+    frm.Show vbModeless
     On Error Resume Next
-    modCache.GetColumnAsset targetBodyRng
+    frm.Controls("txtFilterValues").SetFocus
+    ' 실행 시점에는 파이프라인이 지문을 다시 검증한다.
+    modCache.GetColumnAsset frm.InjectBodyRange
     On Error GoTo 0
 End Sub
+
+' @desc 대상 셀 받아 주입된 공용 폼 반환, 필터 대상 없으면 Nothing
+Public Function GetFilterForm(ByVal targetCell As Range) As frmFilter01
+    Dim body As Range, area As Range, field As Long, header As String
+    If Not ResolveFilterTarget(targetCell, body, area, field, header) Then Exit Function
+
+    ' 통합문서/시트/표의 헤더 위치/필드를 구분한다. 본문 행수 변경에도 키는 유지.
+    Dim formKey As String
+    formKey = area.Rows(1).Address(External:=True) & "!" & CStr(field)
+    If G_OpenForms Is Nothing Then Set G_OpenForms = New Collection
+    Dim frm As frmFilter01
+    On Error Resume Next
+    Set frm = G_OpenForms(formKey)
+    On Error GoTo 0
+    If frm Is Nothing Then
+        Set frm = New frmFilter01
+        frm.MyFormKey = formKey
+        G_OpenForms.Add frm, formKey
+    End If
+    ' 재사용 시에도 현재 범위를 주입해 표 크기 변경을 반영한다.
+    Set frm.InjectBodyRange = body
+    Set frm.InjectFilterArea = area
+    frm.InjectRelativeCol = field
+    frm.InjectHeaderName = header
+    Set GetFilterForm = frm
+End Function
+
+' @desc 대상 셀 받아 본문/필터영역/필드/헤더 반환, 대상 없으면 False
+Public Function ResolveFilterTarget(ByVal targetCell As Range, ByRef rngBody As Range, _
+                                    ByRef rngArea As Range, ByRef lField As Long, _
+                                    ByRef sHeader As String) As Boolean
+    Set rngBody = Nothing
+    Set rngArea = Nothing
+    lField = 0
+    sHeader = ""
+    If targetCell Is Nothing Then Exit Function
+    Dim ws As Worksheet: Set ws = targetCell.Parent
+    Dim lo As ListObject: Set lo = targetCell.ListObject
+    If Not lo Is Nothing Then
+        If lo.DataBodyRange Is Nothing Then Exit Function
+        Set rngArea = lo.Range
+        lField = targetCell.Column - rngArea.Column + 1
+        Set rngBody = lo.DataBodyRange.Columns(lField)
+    Else
+        If Not ws.AutoFilterMode Then Exit Function
+        Set rngArea = ws.AutoFilter.Range
+        If Intersect(targetCell, rngArea) Is Nothing Then
+            Set rngArea = Nothing
+            Exit Function
+        End If
+        If rngArea.Rows.Count < 2 Then Exit Function
+        lField = targetCell.Column - rngArea.Column + 1
+        Set rngBody = rngArea.Columns(lField).Offset(1, 0).Resize(rngArea.Rows.Count - 1, 1)
+    End If
+    sHeader = CStr(rngArea.Cells(1, lField).Value)
+    ResolveFilterTarget = True
+End Function
 
 ' ------------------------------------------------------------------------------
 ' [Utility] API 기반 폼 위치 이동 (표준 화면 이탈 방지 로직 적용)
@@ -135,7 +128,6 @@ Public Sub MoveFormToCursor_API(frm As Object)
     Dim curPos As POINTAPI
     Dim dc As LongPtr
     Dim pixelsPerPointX As Double, pixelsPerPointY As Double
-    Dim ZoomRatio As Double
     
     ' 1. 현재 마우스 커서 위치(Pixel) 가져오기
     GetCursorPos curPos
@@ -310,12 +302,22 @@ End Sub
 ' ==============================================================================
 ' [Buttons] 시트 내 버튼 생성/삭제 로직
 ' ==============================================================================
-Sub ToggleSearchButtonsInSelection()
+' @desc 선택 범위의 필터 버튼을 생성함
+Public Sub ToggleSearchButtonsInSelection()
     If TypeName(Selection) <> "Range" Then Exit Sub
+    On Error GoTo Fail
+    CreateSearchButtons Selection
+    Exit Sub
+Fail:
+    MsgBox "버튼 생성 중 오류 발생: " & Err.Description
+End Sub
+
+' @desc 범위의 필터 버튼을 생성함, 실패 시 설정 복원 후 오류 전달
+Public Sub CreateSearchButtons(ByVal target As Range)
     Dim area As Range
-    Dim ws As Worksheet: Set ws = ActiveSheet
+    Dim ws As Worksheet: Set ws = target.Parent
     Dim colRng As Range, headerCell As Range
-    Dim btn As Shape, existBtn As Shape
+    Dim btn As Shape
     Dim btnName As String, btnSize As Double
     Dim processedCols As Object: Set processedCols = CreateObject("Scripting.Dictionary")
     
@@ -323,7 +325,7 @@ Sub ToggleSearchButtonsInSelection()
     On Error GoTo ErrHandler
     Call OptimizedMode(True)
     
-    For Each area In Selection.Areas
+    For Each area In target.Areas
         For Each colRng In area.Columns
             If Not processedCols.exists(colRng.Column) Then
                 processedCols.Add colRng.Column, True
@@ -339,7 +341,7 @@ Sub ToggleSearchButtonsInSelection()
                         Set headerCell = Intersect(ws.AutoFilter.Range.Rows(1), ws.Columns(colRng.Column))
                     End If
                 End If
-                On Error GoTo 0
+                On Error GoTo ErrHandler
                 
                 ' 2. 버튼 처리 (삭제 후 생성)
                 If Not headerCell Is Nothing Then
@@ -348,7 +350,7 @@ Sub ToggleSearchButtonsInSelection()
                     ' 일단 존재 여부 묻지 않고 삭제 (없으면 에러 무시하고 넘어감)
                     On Error Resume Next
                     ws.Shapes(btnName).Delete
-                    On Error GoTo 0
+                    On Error GoTo ErrHandler
                     
                     ' 무조건 새로 생성
                     btnSize = Application.Min(Application.Max(headerCell.Height * 0.45, 10), 16)
@@ -388,9 +390,10 @@ Sub ToggleSearchButtonsInSelection()
     Exit Sub
     
 ErrHandler:
-    ' 에러 발생 시에도 설정 복구
-    Call OptimizedMode(False)
-    MsgBox "버튼 생성 중 오류 발생: " & Err.Description
+    Dim errNum As Long, errDesc As String
+    errNum = Err.Number: errDesc = Err.Description
+    Utilities.OptimizedMode False
+    Err.Raise errNum, "modUnivFilter.CreateSearchButtons", errDesc
     
 End Sub
 

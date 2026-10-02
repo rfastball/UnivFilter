@@ -32,8 +32,6 @@ Public Function ApplyDisplays(ByVal rngFilterArea As Range, ByVal lField As Long
         End If
     Next vKey
 
-    If Not bStack Then ResetFilters rngFilterArea
-
     Dim nShort As Long, nLong As Long
     nShort = shortItems.Count
     nLong = longItems.Count
@@ -45,6 +43,7 @@ Public Function ApplyDisplays(ByVal rngFilterArea As Range, ByVal lField As Long
 
     If nShort = 0 And Not bIncludeBlanks And nLong <= 2 Then
         ' 등호 스칼라 경로: 긴 항목만 1~2건 (P1: 등호는 길이 무제한)
+        If Not bStack Then ResetFilters rngFilterArea
         If nLong = 1 Then
             rngFilterArea.AutoFilter Field:=lField, Criteria1:="=" & longItems(1)
         Else
@@ -58,6 +57,10 @@ Public Function ApplyDisplays(ByVal rngFilterArea As Range, ByVal lField As Long
         Dim arr() As Variant
         Dim n As Long
         n = nShort + IIf(bIncludeBlanks, 1, 0)
+        If n = 0 Then
+            Err.Raise vbObjectError + 2101, "modApply.ApplyDisplays", _
+                "255자 초과 값만 3개 이상이어서 적용할 수 없습니다. 기존 필터를 유지합니다."
+        End If
         ReDim arr(0 To n - 1)
         Dim i As Long
         For i = 1 To nShort
@@ -65,6 +68,7 @@ Public Function ApplyDisplays(ByVal rngFilterArea As Range, ByVal lField As Long
         Next i
         If bIncludeBlanks Then arr(n - 1) = "="
 
+        If Not bStack Then ResetFilters rngFilterArea
         rngFilterArea.AutoFilter Field:=lField, Criteria1:=arr, Operator:=xlFilterValues
         result("Mode") = "array"
         result("Applied") = n

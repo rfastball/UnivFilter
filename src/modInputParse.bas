@@ -16,28 +16,17 @@ Public Function Tokenize(ByVal sRaw As String) As Variant
     Set seen = CreateObject("Scripting.Dictionary")
     seen.CompareMode = vbTextCompare
 
-    Dim out As New Collection
     Dim i As Long, t As String
     For i = LBound(parts) To UBound(parts)
         t = Trim$(parts(i))
         If Len(t) > 0 Then
             If Not seen.exists(t) Then
                 seen(t) = True
-                out.Add t
             End If
         End If
     Next i
 
-    If out.Count = 0 Then
-        Tokenize = Array()
-    Else
-        Dim arr() As Variant
-        ReDim arr(0 To out.Count - 1)
-        For i = 1 To out.Count
-            arr(i - 1) = out(i)
-        Next i
-        Tokenize = arr
-    End If
+    Tokenize = seen.Keys
 End Function
 
 ' @desc 토큰 받아 값 후보 Double 배열 반환, 해석 불가 시 빈 배열 반환

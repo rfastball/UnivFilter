@@ -474,7 +474,7 @@ Private Sub AppendVm(ByVal vm As Object, ByVal vk As String, ByVal key As String
 End Sub
 
 ' 주입 범위를 신뢰한다: 끝쪽 빈칸도 필터 대상 행이다.
-' (true last row 방어는 범위를 만드는 호출부 소관 - modShortcuts.SetupFormData)
+' (true last row 방어는 범위를 만드는 호출부 소관 - modUnivFilter.ResolveFilterTarget)
 Private Function ResolveTarget(ByVal rngCol As Range) As Range
     If rngCol Is Nothing Then Exit Function
     Set ResolveTarget = rngCol.Columns(1)

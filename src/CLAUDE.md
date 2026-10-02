@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 테스트는 `Public Sub Test_*()` (인자 없음), 단언은 `LogShim.AssertEq`.
 - 시트를 만드는 테스트는 각자 스크래치 시트를 만들고 **반드시 삭제**한다 (떠돌이 문서 모듈이 `--prune`을 막는다). 캐시 무효화는 수동 호출이 불필요하다 — 신선도를 지문 관측이 담당하므로 값·서식을 바꾸면 다음 `GetColumnAsset`이 자동 감지한다 (시트 재생성 간 결정성만 필요하면 `modCache.ClearCache`).
 - 모듈 삭제(prune) 직후 스위트가 이유 없이 크래시하면 stale p-code 의심: 재push + `vbaflow session stop/start`.
-- `CodeManager.bas`는 수동 라운드트립 보조 도구로 남아 있다.
+- 수동 동기화 도구는 폐지했다. 소스 동기화는 vbaflow push/pull/diff만 사용한다.
 
 ## 실측 원장 (설계의 유일한 근거 - 수정 전 필독)
 
@@ -96,11 +96,11 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 | `clsColAsset` | RenderedVec(행별 렌더키) + 지연 인덱스(Displays/ValueMap/RowCountByKey) + BlankCount + 지문 스탬프 + 멤버십 스캔 프리미티브(ScanOne/ScanCount) |
 | `clsColSig` | 열 지문: RowCount + ContentVec(Value2 배열) + 서식rep. `Matches` 저장-비교(충돌0) |
 | `frmFilter01` | UI 전용: Range 주입받아 RunFilter 위임, 결과 팝업 |
-| `modUnivFilter` | 버튼/메뉴/폼 위치(DPI), 전역 상태 G_LastExcludeMode/G_LastStackMode/G_OpenForms |
-| `modShortcuts` | Q/U 핸들러 + SetupFormData (본문 = ListObject DataBodyRange 또는 AutoFilter.Range 경계) |
+| `modUnivFilter` | 셀 기준 대상 해석/폼 재사용/버튼/메뉴/폼 위치(DPI), 전역 상태 G_LastExcludeMode/G_LastStackMode/G_OpenForms |
+| `modShortcuts` | Q/U 핸들러 (대상/폼은 modUnivFilter 공용 진입점에 위임) |
 
 인프라(불변): `clsSet`+`modIndexKey`(UnivDB 벤더링 - vendor.manifest, 직접 수정 금지),
-`LogShim`(vbaflow 관리), `modLogger`(기본 OFF), Win32 shim 4종, `Utilities.OptimizedMode`.
+`LogShim`(vbaflow 관리), `modLogger`(기본 OFF), Win32 shim 3종, `Utilities.OptimizedMode`.
 
 ### Column data lifecycle + 지문(Signature) 계약
 

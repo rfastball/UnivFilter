@@ -121,7 +121,6 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
     Set msgs = modReport.BuildMessages(outcome, bExclude, applyInfo)
     result("StatusMessage") = msgs("StatusMessage")
     result("MissingMessage") = msgs("MissingMessage")
-    result("CorrectionMessage") = msgs("CorrectionMessage")
     result("CorrectionInline") = msgs("CorrectionInline")
     result("WarningMessage") = msgs("WarningMessage")
 

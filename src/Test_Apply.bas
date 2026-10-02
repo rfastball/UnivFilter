@@ -114,6 +114,27 @@ Public Sub Test_AP_LongItem()
     LogShim.AssertEq "ap_long_mode", "scalar", CStr(info("Mode"))
     LogShim.AssertEq "ap_long_visible", CLng(1), modApply.CountVisibleRows(ws.Range("A1:A3"))
 
+    ' 2건 스칼라는 유지, 3건부터는 기존 필터를 보존하며 명시적으로 거부.
+    sel.Add String$(300, "B")
+    Set info = modApply.ApplyDisplays(ws.Range("A1:A3"), 1, sel, False, False)
+    LogShim.AssertEq "ap_long_pair_mode", "scalar", CStr(info("Mode"))
+    ws.Range("A1:A3").AutoFilter Field:=1, Criteria1:="BB"
+    Dim oldCriteria As String
+    oldCriteria = CStr(ws.AutoFilter.Filters(1).Criteria1)
+    sel.Add String$(300, "C")
+    Dim errNum As Long
+    On Error Resume Next
+    modApply.ApplyDisplays ws.Range("A1:A3"), 1, sel, False, False
+    errNum = Err.Number
+    On Error GoTo 0
+    LogShim.AssertEq "ap_long_rejected", CLng(vbObjectError + 2101), errNum
+    LogShim.AssertEq "ap_long_preserved", oldCriteria, CStr(ws.AutoFilter.Filters(1).Criteria1)
+    LogShim.AssertEq "ap_long_old_row_visible", False, ws.Rows(3).Hidden
+
+    sel.Clear
+    Set info = modApply.ApplyDisplays(ws.Range("A1:A3"), 1, sel, False, False)
+    LogShim.AssertEq "ap_empty_preserved", oldCriteria, CStr(ws.AutoFilter.Filters(1).Criteria1)
+
     DropSheet
 End Sub
 

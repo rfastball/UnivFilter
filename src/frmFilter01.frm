@@ -15,7 +15,7 @@ Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
 ' @desc 필터 조건 입력 폼 UI와 위임 담당
-' @depends modFilterRun, modReport, modShortcuts, FocusAPI, AutoCloseMsgAPI, modUnivFilter
+' @depends modFilterRun, modReport, FocusAPI, AutoCloseMsgAPI, modUnivFilter
 Option Explicit
 
 ' ==============================================================================
@@ -162,7 +162,7 @@ Private Sub btnApply_Click()
     ' 5. 결과 처리: 팝업은 실행 가능 정보만, 자동보정은 상태바 한 줄 (퀵 모드와 동일)
     If result("Ok") Then
         Log "RunFilter 성공: " & result("StatusMessage"), lvlInfo
-        modReport.ShowStatusBar modShortcuts.StatusLine(result)
+        modReport.ShowStatusBar modReport.StatusLine(result)
 
         If Len(result("WarningMessage")) > 0 Then
             AutoCloseMsgBox_Popup result("WarningMessage"), 3, "경고"

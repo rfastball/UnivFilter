@@ -1,6 +1,6 @@
 Attribute VB_Name = "modShortcuts"
 ' @desc 전역 단축키 핸들러와 폼 주입 담당
-' @depends frmFilter01, modUnivFilter, modFilterRun, modCache, modReport, ClipboardAPI, AutoCloseMsgAPI
+' @depends modUnivFilter, modFilterRun, modReport, ClipboardAPI, AutoCloseMsgAPI
 Option Explicit
 
 ' ==========================================================
@@ -11,7 +11,10 @@ Option Explicit
 Public Sub UnivFilter_QuickHandler()
     Dim rngBody As Range, rngArea As Range
     Dim lField As Long, sHeader As String
-    If Not ResolveFilterTarget(rngBody, rngArea, lField, sHeader) Then Exit Sub
+    If Not modUnivFilter.ResolveFilterTarget(ActiveCell, rngBody, rngArea, lField, sHeader) Then
+        AutoCloseMsgAPI.AutoCloseMsgBox_Popup "표(Table) 또는 자동 필터 범위 내에서 실행해 주세요.", 1, "UnivFilter 알림"
+        Exit Sub
+    End If
 
     Dim sClip As String
     sClip = ClipboardAPI.GetClipboardText()
@@ -32,7 +35,13 @@ Public Sub UnivFilter_QuickHandler()
         ' 0건: 필터/폼/클립보드 전부 원상태 유지
         AutoCloseMsgBox_Popup "일치하는 값이 없어 필터를 적용하지 않았습니다.", 2, "알림"
     Else
-        modReport.ShowStatusBar StatusLine(result)
+        modReport.ShowStatusBar modReport.StatusLine(result)
+        If Len(result("WarningMessage")) > 0 Then
+            AutoCloseMsgAPI.AutoCloseMsgBox_Popup result("WarningMessage"), 3, "경고"
+        End If
+        If Len(result("SelfCheckNote")) > 0 Then
+            AutoCloseMsgAPI.AutoCloseMsgBox_Popup result("SelfCheckNote"), 3, "검증 경고"
+        End If
         If Len(result("MissingMessage")) > 0 Then
             AutoCloseMsgBox_Popup result("MissingMessage"), 2
         End If
@@ -44,98 +53,7 @@ Public Sub UnivFilter_QuickHandler()
     End If
 End Sub
 
-' ==========================================================
-' [Ctrl + Shift + U] UI 핸들러 (Form Mode)
-' ==========================================================
+' @desc 활성 셀의 필터 설정 폼을 엶
 Public Sub UnivFilter_UIHandler()
-    Dim frm As New frmFilter01
-    If SetupFormData(frm) Then
-        modUnivFilter.MoveFormToCell_API frm, ActiveCell '폼 띄우기 전 위치이동
-        frm.Show vbModeless
-        ' 프리웜: 사용자가 입력하는 동안 콜드 스캔 선행 (지문 계약이 실행 시점에
-        ' 재검증하므로 낡아도 무해 - 최악이 재스캔 1회로 현행과 동일)
-        On Error Resume Next
-        modCache.GetColumnAsset frm.InjectBodyRange
-        On Error GoTo 0
-    Else
-        Unload frm
-    End If
+    modUnivFilter.OpenFilterForm ActiveCell
 End Sub
-
-' ==========================================================
-' [Helper] 결과 요약을 상태바 한 줄로 조립 (퀵/폼 공용)
-' ==========================================================
-' @desc 결과 딕셔너리 받아 상태바 한 줄 요약 반환, 보정 있으면 인라인 병기
-Public Function StatusLine(ByVal result As Object) As String
-    Dim s As String
-    s = "UnivFilter: " & result("StatusMessage")
-    If Len(result("CorrectionInline")) > 0 Then
-        s = s & " | 보정: " & result("CorrectionInline")
-    End If
-    StatusLine = s
-End Function
-
-' ==========================================================
-' [Helper] 현재 열의 필터 대상 해석 (퀵/폼 공용 리졸버)
-' ==========================================================
-' @desc 활성 셀 기준 본문/영역/상대열/헤더 해석해 성공 여부 반환, 실패 시 알림 팝업
-Private Function ResolveFilterTarget(ByRef rngBody As Range, ByRef rngArea As Range, _
-                                     ByRef lField As Long, ByRef sHeader As String) As Boolean
-    Dim ws As Worksheet: Set ws = ActiveSheet
-    Dim targetCell As Range: Set targetCell = ActiveCell ' 현재 포커스된 셀 기준
-    Dim lo As ListObject: Set lo = targetCell.ListObject
-    Dim filterRng As Range
-    Dim relCol As Long
-
-    ' 기본값은 실패(False)로 설정
-    ResolveFilterTarget = False
-
-    ' 1. 우선순위: 표(Table) 내부인지 확인
-    If Not lo Is Nothing Then
-        If lo.DataBodyRange Is Nothing Then Exit Function ' 빈 표 방어
-        relCol = targetCell.Column - lo.Range.Column + 1
-        Set rngArea = lo.Range
-        Set rngBody = lo.DataBodyRange.Columns(relCol)
-        sHeader = lo.HeaderRowRange.Cells(1, relCol).Value
-        lField = relCol
-
-        ResolveFilterTarget = True
-        Exit Function
-    End If
-
-    ' 2. 차선책: 자동 필터(AutoFilter) 영역 내부인지 확인
-    If ws.AutoFilterMode Then
-        Set filterRng = ws.AutoFilter.Range
-        ' 선택한 셀이 실제 필터 범위와 겹치는지 정밀 검사
-        If Not Intersect(targetCell, filterRng) Is Nothing Then
-            If filterRng.Rows.Count < 2 Then Exit Function ' 본문 없는 필터 방어
-            relCol = targetCell.Column - filterRng.Column + 1
-            Set rngArea = filterRng
-            ' 본문 = 필터 영역 자체에서 헤더 1행 제외 (영역 밖 End(xlUp) 재유도 금지:
-            ' AutoFilter.Range의 경계가 실제 필터 대상의 진실이다)
-            Set rngBody = filterRng.Columns(relCol).Offset(1, 0) _
-                                    .Resize(filterRng.Rows.Count - 1, 1)
-            sHeader = ws.Cells(filterRng.Row, targetCell.Column).Value
-            lField = relCol
-
-            ResolveFilterTarget = True
-            Exit Function
-        End If
-    End If
-
-    ' 3. [최종 낙하 지점] 위 조건에 모두 해당하지 않는 경우에만 메시지 출력
-    AutoCloseMsgBox_Popup "표(Table) 또는 자동 필터 범위 내에서 실행해 주세요.", 1, "UnivFilter 알림"
-
-End Function
-
-' 리졸버 결과를 폼에 주입한다 (폼 모드 전용).
-Private Function SetupFormData(ByRef frm As frmFilter01) As Boolean
-    Dim rngBody As Range, rngArea As Range
-    Dim lField As Long, sHeader As String
-    If Not ResolveFilterTarget(rngBody, rngArea, lField, sHeader) Then Exit Function
-    Set frm.InjectFilterArea = rngArea
-    Set frm.InjectBodyRange = rngBody
-    frm.InjectHeaderName = sHeader
-    frm.InjectRelativeCol = lField
-    SetupFormData = True
-End Function

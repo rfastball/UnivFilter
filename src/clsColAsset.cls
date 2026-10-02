@@ -82,10 +82,6 @@ Public Sub PatchRendered(ByRef rowsChanged() As Long, ByRef newKeys() As String,
     Set mRowCountByKey = Nothing
 End Sub
 
-' @desc 행별 표시키 배열 반환(값 복사), InitRendered 자산에서만 유효
-Public Property Get RenderedVec() As String()
-    RenderedVec = mRenderedVec
-End Property
 
 ' @desc 키 딕셔너리 받아 렌더키 1패스 멤버십 표시 후 매칭 행수 반환
 ' 발견한 키는 keyDict(키)=True로 마킹한다. 배열 복사 없이 내부 배열을 직스캔

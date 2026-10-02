@@ -1,6 +1,6 @@
 Attribute VB_Name = "Test_Pipeline"
 ' @desc modFilterRun 파이프라인 e2e 계약 테스트 담당
-' @depends modFilterRun, modCache, modApply, clsSet, LogShim
+' @depends modFilterRun, modCache, modApply, modUnivFilter, modReport, frmFilter01, clsSet, LogShim
 Option Explicit
 
 ' 2026-07 재설계 스펙: 폼/퀵 공용 진입점의 결과 계약을 실기 시트로 고정한다.
@@ -38,7 +38,7 @@ Public Sub Test_PL_CorrectionAndMissing()
                                    "1000" & vbCrLf & "9999", False, False, False)
 
     LogShim.AssertEq "pl_corr_ok", True, r("Ok")
-    LogShim.AssertEq "pl_corr_msg", True, Len(r("CorrectionMessage")) > 0
+    LogShim.AssertEq "pl_corr_inline", True, InStr(modReport.StatusLine(r), "1000 -> 1,000") > 0
     LogShim.AssertEq "pl_corr_missing_msg", True, Len(r("MissingMessage")) > 0
     LogShim.AssertEq "pl_corr_visible", CLng(1), modApply.CountVisibleRows(Area(ws))
 
@@ -112,6 +112,129 @@ Public Sub Test_PL_EmptyInput()
     LogShim.AssertEq "pl_empty_errmsg", True, Len(r("ErrMsg")) > 0
 
     DropSheet
+End Sub
+
+' @desc 퀵 경로의 긴 값 거부와 부분 적용 경고를 검증함
+Public Sub Test_PL_QuickLongValues()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    On Error GoTo Fail
+    ws.Range("A1").Value = "H"
+    ws.Range("A2").Value = String$(300, "A")
+    ws.Range("A3").Value = String$(300, "B")
+    ws.Range("A4").Value = String$(300, "C")
+    ws.Range("A5").Value = "keep"
+    ws.Range("A1:A5").AutoFilter Field:=1, Criteria1:="keep"
+    Dim oldCriteria As String
+    oldCriteria = CStr(ws.AutoFilter.Filters(1).Criteria1)
+
+    Dim r As Object, raw As String
+    raw = ws.Range("A2").Value & vbLf & ws.Range("A3").Value & vbLf & ws.Range("A4").Value
+    Set r = modFilterRun.RunQuickFilter(ws.Range("A2:A5"), ws.Range("A1:A5"), 1, raw)
+    LogShim.AssertEq "pl_long_not_ok", False, r("Ok")
+    LogShim.AssertEq "pl_long_reason", True, InStr(r("ErrMsg"), "기존 필터를 유지") > 0
+    LogShim.AssertEq "pl_long_filter_preserved", oldCriteria, CStr(ws.AutoFilter.Filters(1).Criteria1)
+
+    Set r = modFilterRun.RunQuickFilter(ws.Range("A2:A5"), ws.Range("A1:A5"), 1, _
+                                       "keep" & vbLf & ws.Range("A2").Value)
+    LogShim.AssertEq "pl_long_partial_ok", True, r("Ok")
+    LogShim.AssertEq "pl_long_warning", True, Len(r("WarningMessage")) > 0
+    LogShim.AssertEq "pl_long_selfcheck", True, Len(r("SelfCheckNote")) > 0
+    LogShim.AssertEq "pl_long_partial_visible", CLng(1), modApply.CountVisibleRows(ws.Range("A1:A5"))
+Cleanup:
+    DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "pl_long_error", "", Err.Description
+    Resume Cleanup
+End Sub
+
+' @desc 세로 표/통합문서별 폼 분리와 같은 대상 재사용을 검증함
+Public Sub Test_PL_TargetForms()
+    Dim ws As Worksheet, wb As Workbook, other As Worksheet
+    Dim topForm As frmFilter01, bottomForm As frmFilter01
+    Dim otherForm As frmFilter01, again As frmFilter01
+    Set ws = PrepSheet()
+    On Error GoTo Fail
+    ws.Range("A1").Value = "Top": ws.Range("A2").Value = "a"
+    ws.Range("A5").Value = "Bottom": ws.Range("A6").Value = "b"
+    Dim lo As ListObject
+    Set lo = ws.ListObjects.Add(xlSrcRange, ws.Range("A1:A2"), , xlYes)
+    Set lo = ws.ListObjects.Add(xlSrcRange, ws.Range("A5:A6"), , xlYes)
+    Dim priorForms As Long
+    If Not modUnivFilter.G_OpenForms Is Nothing Then priorForms = modUnivFilter.G_OpenForms.Count
+    Set topForm = modUnivFilter.GetFilterForm(ws.Range("A1"))
+    Set bottomForm = modUnivFilter.GetFilterForm(ws.Range("A5"))
+    LogShim.AssertEq "pl_target_top", "$A$2", topForm.InjectBodyRange.Address
+    LogShim.AssertEq "pl_target_bottom", "$A$6", bottomForm.InjectBodyRange.Address
+    LogShim.AssertEq "pl_target_distinct_tables", False, topForm Is bottomForm
+    Set again = modUnivFilter.GetFilterForm(ws.Range("A6"))
+    LogShim.AssertEq "pl_target_reuse", True, again Is bottomForm
+    lo.Resize ws.Range("A5:A7")
+    Set again = modUnivFilter.GetFilterForm(ws.Range("A5"))
+    LogShim.AssertEq "pl_target_resize_reuse", True, again Is bottomForm
+    LogShim.AssertEq "pl_target_resize_body", "$A$6:$A$7", again.InjectBodyRange.Address
+
+    Set wb = Application.Workbooks.Add(xlWBATWorksheet)
+    Set other = wb.Worksheets(1)
+    other.Name = ws.Name
+    other.Range("A1").Value = "Other": other.Range("A2").Value = "c"
+    other.Range("A1:A2").AutoFilter
+    Set otherForm = modUnivFilter.GetFilterForm(other.Range("A1"))
+    LogShim.AssertEq "pl_target_distinct_books", False, topForm Is otherForm
+    LogShim.AssertEq "pl_target_book", wb.Name, otherForm.InjectBodyRange.Parent.Parent.Name
+    Set again = modUnivFilter.GetFilterForm(other.Range("A10"))
+    LogShim.AssertEq "pl_target_outside", True, again Is Nothing
+Cleanup:
+    On Error Resume Next
+    If Not topForm Is Nothing Then Unload topForm
+    If Not bottomForm Is Nothing Then Unload bottomForm
+    If Not otherForm Is Nothing Then Unload otherForm
+    Set again = Nothing
+    Set topForm = Nothing: Set bottomForm = Nothing: Set otherForm = Nothing
+    LogShim.AssertEq "pl_target_closed", priorForms, modUnivFilter.G_OpenForms.Count
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    On Error GoTo 0
+    DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "pl_target_error", "", Err.Description
+    Resume Cleanup
+End Sub
+
+' @desc 버튼 생성 실패 후 Excel 계산/이벤트/화면 설정 복원을 검증함
+Public Sub Test_PL_ButtonFailureRestoresState()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    Dim calc As XlCalculation, events As Boolean, screen As Boolean
+    calc = Application.Calculation
+    events = Application.EnableEvents
+    screen = Application.ScreenUpdating
+    On Error GoTo Fail
+    PutNumberCol ws
+    ws.Range("A1:A4").AutoFilter
+    ws.Protect DrawingObjects:=True
+    Dim errNum As Long
+    On Error Resume Next
+    modUnivFilter.CreateSearchButtons ws.Range("A1")
+    errNum = Err.Number
+    On Error GoTo Fail
+    LogShim.AssertEq "pl_button_error", True, errNum <> 0
+    LogShim.AssertEq "pl_button_calc", CLng(calc), CLng(Application.Calculation)
+    LogShim.AssertEq "pl_button_events", events, Application.EnableEvents
+    LogShim.AssertEq "pl_button_screen", screen, Application.ScreenUpdating
+Cleanup:
+    On Error Resume Next
+    ws.Unprotect
+    Application.Calculation = calc
+    Application.EnableEvents = events
+    Application.ScreenUpdating = screen
+    On Error GoTo 0
+    DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "pl_button_restore_error", "", Err.Description
+    Resume Cleanup
 End Sub
 
 ' 헤더 + 숫자(#,##0) 3행 열을 만든다: 1,000 / 2,000 / 3,000

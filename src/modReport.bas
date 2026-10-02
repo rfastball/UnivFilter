@@ -50,18 +50,7 @@ Public Function BuildMessages(ByVal outcome As Object, ByVal bExclude As Boolean
         msgs("MissingMessage") = ""
     End If
 
-    ' 자동보정 메시지 (입력 -> 실제 표시)
-    If corrections.Count > 0 Then
-        Dim c As String, vKey As Variant
-        c = "입력을 표시 형식에 맞춰 보정했습니다:" & vbCrLf
-        For Each vKey In corrections.Keys
-            c = c & "- " & CStr(vKey) & " -> " & CStr(corrections(vKey)) & vbCrLf
-        Next vKey
-        msgs("CorrectionMessage") = c
-    Else
-        msgs("CorrectionMessage") = ""
-    End If
-
+    Dim vKey As Variant
     ' 자동보정 인라인 요약 (상태바용 한 줄 - 보정은 결정론 동작이라 결과가 곧 피드백,
     ' 팝업 대신 상태바로만 알린다)
     If corrections.Count > 0 Then
@@ -117,11 +106,8 @@ End Sub
 ' @desc 누락 배열을 줄바꿈 목록으로 클립보드에 복사함
 Public Sub CopyMissing(ByVal vMissing As Variant)
     If ArrCount(vMissing) = 0 Then Exit Sub
-    Dim s As String, i As Long
-    For i = LBound(vMissing) To UBound(vMissing)
-        If Len(s) > 0 Then s = s & vbCrLf
-        s = s & CStr(vMissing(i))
-    Next i
+    Dim s As String
+    s = Join(vMissing, vbCrLf)
     If Not ClipboardAPI.SetClipboardText(s) Then
         Log "CopyMissing: 클립보드 복사 실패", lvlWarning
     End If
@@ -131,4 +117,12 @@ Private Function ArrCount(ByVal v As Variant) As Long
     If Not IsArray(v) Then Exit Function
     ArrCount = UBound(v) - LBound(v) + 1
     If ArrCount < 0 Then ArrCount = 0
+End Function
+
+' @desc 결과 딕셔너리 받아 상태바 요약 반환, 보정 있으면 인라인 병기
+Public Function StatusLine(ByVal result As Object) As String
+    StatusLine = "UnivFilter: " & result("StatusMessage")
+    If Len(result("CorrectionInline")) > 0 Then
+        StatusLine = StatusLine & " | 보정: " & result("CorrectionInline")
+    End If
 End Function
