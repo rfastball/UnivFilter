@@ -1,4 +1,6 @@
 Attribute VB_Name = "ClipboardAPI"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc Win32 클립보드 텍스트 읽기/쓰기 담당
 Option Explicit
 

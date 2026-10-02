@@ -1,4 +1,6 @@
 Attribute VB_Name = "Test_Pipeline"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc modFilterRun 파이프라인 e2e 계약 테스트 담당
 ' @depends modFilterRun, modCache, modApply, modUnivFilter, modReport, frmFilter01, clsSet, LogShim
 Option Explicit

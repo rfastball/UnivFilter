@@ -1,4 +1,6 @@
 Attribute VB_Name = "Test_Apply"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc modApply 적용 계약과 스캔-매칭-적용 e2e 테스트 담당
 ' @depends modApply, modColumnScan, modMatch, clsColAsset, clsSet, LogShim
 Option Explicit

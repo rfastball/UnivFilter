@@ -1,4 +1,6 @@
 Attribute VB_Name = "Test_Match"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc modMatch 2레인 매칭 계약 단위테스트 담당
 ' @depends modMatch, modInputParse, clsColAsset, clsSet, LogShim
 Option Explicit

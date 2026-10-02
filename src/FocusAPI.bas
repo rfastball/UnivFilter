@@ -1,4 +1,6 @@
 Attribute VB_Name = "FocusAPI"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 창 제목 검색해 포커스 전환 담당
 ' [윈도우 제어: 창 찾기 및 포커스]
 Private Declare PtrSafe Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As String, ByVal lpWindowName As String) As LongPtr

@@ -1,4 +1,6 @@
 Attribute VB_Name = "modShortcuts"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 전역 단축키 핸들러와 폼 주입 담당
 ' @depends modUnivFilter, modFilterRun, modReport, ClipboardAPI, AutoCloseMsgAPI
 Option Explicit

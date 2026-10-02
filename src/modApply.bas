@@ -1,4 +1,6 @@
 Attribute VB_Name = "modApply"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 표시 키 집합의 AutoFilter 적용 담당
 ' @depends clsSet, modLogger
 Option Explicit

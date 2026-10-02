@@ -1,4 +1,6 @@
 Attribute VB_Name = "AutoCloseMsgAPI"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 자동 닫힘 팝업 표시 담당
 ' ==============================================================================
 ' [외부 API 및 상수 선언]

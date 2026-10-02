@@ -1,4 +1,6 @@
 Attribute VB_Name = "Test_Signature"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc clsColSig 대조 계약 + ComputeSignature 관측 단위테스트 담당
 ' @depends modColumnScan, modCache, clsColSig, clsColAsset, LogShim
 Option Explicit

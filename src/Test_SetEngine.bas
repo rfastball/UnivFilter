@@ -1,4 +1,6 @@
 Attribute VB_Name = "Test_SetEngine"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc dict 셋 엔진 계약 특성화 단위테스트 담당
 ' @depends clsSet, LogShim
 Option Explicit

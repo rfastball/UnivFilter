@@ -1,4 +1,6 @@
 Attribute VB_Name = "Test_ColumnScan"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc modColumnScan 자산 구축 계약 단위테스트 담당
 ' @depends modColumnScan, clsColAsset, clsColSig, clsSet, LogShim
 Option Explicit

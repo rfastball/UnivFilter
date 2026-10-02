@@ -1,4 +1,6 @@
 Attribute VB_Name = "modPerfProbe"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 스캔 병목 계측 일회용 프로브 담당
 ' @depends modColumnScan, modCache, modMatch, clsColSig, clsColAsset, clsSet, Utilities, LogShim
 Option Explicit

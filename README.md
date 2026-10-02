@@ -2,7 +2,7 @@
 
 엑셀의 어떤 표(ListObject / 자동 필터 범위)에든 **범용 필터(Universal Filter)** 를 붙여 주는 Excel VBA 애드인입니다. 셀 안 버튼 · 마우스 우클릭 메뉴 · 전역 단축키 어디서든 열리고, **여러 값을 한꺼번에 붙여넣어** 필터링합니다.
 
-> 대상 워크북: `UnivFilter.xlsm` · 배포 애드인: `UnivFilter.xlam` · 현재 버전 **2.8.1**
+> 대상 워크북: `UnivFilter.xlsm` · 배포 애드인: `UnivFilter.xlam` · 현재 버전 **2.8.2**
 
 ---
 
@@ -32,7 +32,7 @@ UnivFilter는 그 목록을 **그대로 붙여넣으면** 됩니다. 줄바꿈/�
 
 ## 설치
 
-1. 애드인 파일 `UnivFilter.xlam`을 준비합니다(소스에서 `vbaflow dist`로 빌드).
+1. [최신 릴리스](https://github.com/rfastball/UnivFilter/releases/latest)에서 ZIP을 내려받아 압축을 풉니다. 애드인과 함께 포함된 `LICENSE`를 보관하세요.
 2. Excel → **파일 → 옵션 → 추가 기능 → 이동(Excel 추가 기능) → 찾아보기** 에서 `UnivFilter.xlam` 선택.
 3. 매크로 사용을 허용하면 워크북을 열 때 단축키/컨텍스트 메뉴가 자동 등록됩니다.
 
@@ -70,4 +70,8 @@ UnivFilter는 그 목록을 **그대로 붙여넣으면** 됩니다. 줄바꿈/�
 
 ## 라이선스
 
-별도 명시 전까지 저작권은 작성자에게 있습니다.
+[MIT License](LICENSE) · Copyright (c) 2026 JM.
+
+재배포할 때는 LICENSE의 저작권 및 허가 고지를 함께 포함하세요. 직접 관리하는 VBA 모듈에는 SPDX 식별자와 저작권 고지를 표기하며, 도구 관리·벤더링 모듈은 원본을 유지합니다.
+
+릴리스 ZIP에는 애드인, README, LICENSE를 포함합니다. 단독 애드인을 다운로드한 경우에도 함께 제공되는 LICENSE를 보관하세요. SHA256SUMS.txt로 배포 파일의 무결성을 확인할 수 있습니다.

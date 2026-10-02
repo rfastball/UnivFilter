@@ -1,4 +1,6 @@
 Attribute VB_Name = "modColumnScan"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 열 1회 스캔해 표시키/값지도 자산 구축 담당
 ' @depends clsColAsset, clsColSig, clsSet, modLogger
 Option Explicit

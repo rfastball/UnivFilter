@@ -1,4 +1,6 @@
 Attribute VB_Name = "modMatch"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 토큰과 열 자산의 2레인 매칭 판정 담당
 ' @depends modInputParse, modColumnScan, clsSet, clsColAsset, clsColSig
 Option Explicit

@@ -1,4 +1,6 @@
 Attribute VB_Name = "modCache"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 열 자산 캐시와 지문 신선도 관측 담당
 ' @depends modColumnScan, clsColAsset, clsColSig, modLogger
 Option Explicit

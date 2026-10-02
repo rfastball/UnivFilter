@@ -1,4 +1,6 @@
 Attribute VB_Name = "modFilterRun"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 필터 실행 파이프라인 오케스트레이션 담당
 ' @depends modCache, modInputParse, modMatch, modApply, modReport, clsColAsset, clsSet, Utilities, modLogger
 Option Explicit

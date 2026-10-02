@@ -1,4 +1,6 @@
 Attribute VB_Name = "modReport"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 누락/보정 리포트 구성과 클립보드 복사 담당
 ' @depends ClipboardAPI, modLogger
 Option Explicit

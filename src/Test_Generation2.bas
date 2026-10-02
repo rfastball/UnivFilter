@@ -1,4 +1,6 @@
 Attribute VB_Name = "Test_Generation2"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc modCache 지문 신선도 계약(관측 재빌드) 테스트 담당
 ' @depends modCache, clsColAsset, LogShim
 Option Explicit

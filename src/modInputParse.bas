@@ -1,4 +1,6 @@
 Attribute VB_Name = "modInputParse"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 입력 원문 토큰화와 값 후보 해석 담당
 Option Explicit
 

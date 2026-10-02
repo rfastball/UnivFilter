@@ -1,4 +1,6 @@
 Attribute VB_Name = "modUnivFilter"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 진입 UI(버튼/메뉴)와 폼 기동 담당
 ' @depends frmFilter01, modCache, modLogger, AutoCloseMsgAPI, Utilities
 Option Explicit

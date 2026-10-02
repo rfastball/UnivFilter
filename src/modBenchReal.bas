@@ -1,4 +1,6 @@
 Attribute VB_Name = "modBenchReal"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc 실데이터 열을 격리 fixture로 복제하고 스캔경로 접근당 비용 계측 담당
 ' @depends modCache, modColumnScan, modFilterRun, modInputParse, modMatch, modApply, modReport, clsColAsset, clsColSig, clsSet, frmFilter01, Utilities, LogShim
 Option Explicit

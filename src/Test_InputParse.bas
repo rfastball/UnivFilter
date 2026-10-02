@@ -1,4 +1,6 @@
 Attribute VB_Name = "Test_InputParse"
+' SPDX-License-Identifier: MIT
+' Copyright (c) 2026 JM - see LICENSE
 ' @desc modInputParse 토큰화/값해석 계약 단위테스트 담당
 ' @depends modInputParse, LogShim
 Option Explicit
