@@ -11,12 +11,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build / Test Workflow
 
-개발 루프는 `vbaflow` (루트 `../CLAUDE.md`의 관리 블록 참조): 편집 → `vbaflow push` → `vbaflow test` → green이면 commit.
+개발 루프는 `vbaloop` (루트 `../CLAUDE.md`의 관리 블록 참조): 편집 → `vbaloop push` → `vbaloop test` → green이면 commit.
 
 - 테스트는 `Public Sub Test_*()` (인자 없음), 단언은 `LogShim.AssertEq`.
 - 시트를 만드는 테스트는 각자 스크래치 시트를 만들고 **반드시 삭제**한다 (떠돌이 문서 모듈이 `--prune`을 막는다). 캐시 무효화는 수동 호출이 불필요하다 — 신선도를 지문 관측이 담당하므로 값·서식을 바꾸면 다음 `GetColumnAsset`이 자동 감지한다 (시트 재생성 간 결정성만 필요하면 `modCache.ClearCache`).
-- 모듈 삭제(prune) 직후 스위트가 이유 없이 크래시하면 stale p-code 의심: 재push + `vbaflow session stop/start`.
-- 수동 동기화 도구는 폐지했다. 소스 동기화는 vbaflow push/pull/diff만 사용한다.
+- 모듈 삭제(prune) 직후 스위트가 이유 없이 크래시하면 stale p-code 의심: 재push + `vbaloop session stop/start`.
+- 수동 동기화 도구는 폐지했다. 소스 동기화는 vbaloop push/pull/diff만 사용한다.
 
 ## 실측 원장 (설계의 유일한 근거 - 수정 전 필독)
 
@@ -100,7 +100,7 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 | `modShortcuts` | Q/U 핸들러 (대상/폼은 modUnivFilter 공용 진입점에 위임) |
 
 인프라(불변): `clsSet`+`modIndexKey`(UnivDB 벤더링 - vendor.manifest, 직접 수정 금지),
-`LogShim`(vbaflow 관리), `modLogger`(기본 OFF), Win32 shim 3종, `Utilities.OptimizedMode`.
+`LogShim`(vbaloop 관리), `modLogger`(기본 OFF), Win32 shim 3종, `Utilities.OptimizedMode`.
 
 ### Column data lifecycle + 지문(Signature) 계약
 
@@ -125,7 +125,7 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 
 - 주석·로그·사용자 문자열은 전부 **한국어**.
 - 모듈 헤더/프로시저 `@desc`는 상위 `VBA_Projects/CLAUDE.md` §2 스키마를 따른다.
-- em dash(U+2014)/이모지 등 CP949 밖 문자 소스 사용 금지 — `vbaflow push`가 거부. 원화 기호는 `ChrW(8361)`.
+- em dash(U+2014)/이모지 등 CP949 밖 문자 소스 사용 금지 — `vbaloop push`가 거부. 원화 기호는 `ChrW(8361)`.
 - VBA `And`/`Or`는 단락평가가 없다 — Null/Nothing 가드는 중첩 If로.
 - 폼은 **모드리스**(`.Show vbModeless`). `G_OpenForms` 재활성화 경로를 이해하기 전에 모달 전환 금지.
 - `OnAction` 문자열 간접 호출: shape 버튼 → `ShowUniversalFilter`, 컨텍스트 메뉴 → `CallFilterFromMenu`. 해당 Public Sub 이름 변경 시 `modUnivFilter`의 `.OnAction =` 할당도 함께 갱신.

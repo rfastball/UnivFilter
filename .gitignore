@@ -12,7 +12,7 @@
 *.xlsx
 *.xlam
 
-# dist artifacts (built by vbaflow dist)
+# dist artifacts (built by vbaloop dist)
 dist/
 
 # test templates
@@ -20,7 +20,7 @@ test_*/
 archive/
 releases/
 
-# vbaflow:managed:start
+# vbaloop:managed:start
 _dbg/
 dist/
-# vbaflow:managed:end
+# vbaloop:managed:end
