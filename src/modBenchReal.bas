@@ -5,6 +5,9 @@ Attribute VB_Name = "modBenchReal"
 ' @depends modCache, modColumnScan, modFilterRun, modInputParse, modMatch, modApply, modReport, clsColAsset, clsColSig, clsSet, frmFilter01, Utilities, LogShim
 Option Explicit
 
+Private Declare PtrSafe Function QueryPerformanceCounter Lib "kernel32" (ByRef value As Currency) As Long
+Private Declare PtrSafe Function QueryPerformanceFrequency Lib "kernel32" (ByRef value As Currency) As Long
+
 ' 실데이터 원본(직접 벤치 금지 - 데이터만 뽑아 fixture로 복제 후 그 위에서 측정).
 ' (Const는 상수식만 허용 - ChrW 조립은 함수로.)
 Private Function RealPath() As String
@@ -2105,3 +2108,131 @@ Private Sub BenchColumn(ByVal ws As Worksheet, ByVal col As Long, ByVal tag As S
               Format$(missMs, "0.0"), Format$(hitMs, "0.00"), _
               Format$(csMs, "0.00"), Format$(mMs, "0.00"))
 End Sub
+
+' @desc 조건 수별 분류/배열/해제/필터 시간을 격리 워크북에서 측정함
+Public Sub MeasureApplyStages()
+    Const ROWS As Long = 91235
+    Const UNIQ As Long = 47397
+    Dim wb As Workbook, ws As Worksheet, area As Range
+    Dim values() As Variant, keys() As Variant, i As Long, n As Variant, rep As Long
+    Dim displaySet As clsSet, failure As String
+    On Error GoTo Failed
+    Utilities.OptimizedMode True
+    Set wb = Workbooks.Add(xlWBATWorksheet)
+    Set ws = wb.Worksheets(1)
+    ReDim values(1 To ROWS + 1, 1 To 1)
+    values(1, 1) = "금액"
+    For i = 1 To ROWS
+        values(i + 1, 1) = ((i - 1) Mod UNIQ + 1) * 7
+    Next i
+    Set area = ws.Range("A1").Resize(ROWS + 1, 1)
+    area.NumberFormat = "#,##0"
+    area.Value2 = values
+    area.AutoFilter
+    LogShim.LogEvent "apply_stages_env", Array("rows", "uniq", "excel", "build"), _
+        Array(ROWS, UNIQ, Application.Version, Application.Build)
+    ' 행수/고유값은 고정하고 남길 조건 수만 바꾼다. 매번 같은 이전 필터 상태.
+    For Each n In Array(1000, 5000, 10000, 20000, 40000, 47396)
+        ReDim keys(0 To CLng(n) - 1)
+        For i = 1 To CLng(n)
+            keys(i - 1) = Format$(i * 7, "#,##0")
+        Next i
+        Set displaySet = New clsSet
+        displaySet.LoadFromArray keys
+        For rep = 1 To 3
+            MeasureApplyStageCase area, displaySet, CLng(n), rep, ROWS, UNIQ
+        Next rep
+    Next n
+    GoTo Cleanup
+Failed:
+    failure = CStr(Err.Number) & ": " & Err.Description
+Cleanup:
+    On Error Resume Next
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    Utilities.OptimizedMode False
+    On Error GoTo 0
+    LogShim.LogEvent "apply_stages_done", Array("ok", "error"), Array(failure = "", failure)
+End Sub
+
+Private Sub MeasureApplyStageCase(ByVal area As Range, ByVal displaySet As clsSet, _
+                                  ByVal n As Long, ByVal rep As Long, _
+                                  ByVal rows As Long, ByVal uniq As Long)
+    Dim shortItems As New Collection, longItems As New Collection
+    Dim vKey As Variant, arr() As Variant, direct() As Variant
+    Dim t As Double, classifyMs As Double, indexMs As Double, enumMs As Double
+    Dim resetMs As Double, filterMs As Double, i As Long, same As Boolean
+    Dim expected As Long, actual As Long
+    modApply.ResetFilters area
+    area.AutoFilter Field:=1, Criteria1:=Array("7"), Operator:=xlFilterValues
+
+    t = ApplyProbeClock()
+    For Each vKey In displaySet.KeysArray
+        If Len(CStr(vKey)) > 255 Then
+            longItems.Add CStr(vKey)
+        Else
+            shortItems.Add CStr(vKey)
+        End If
+    Next vKey
+    classifyMs = (ApplyProbeClock() - t) * 1000#
+
+    t = ApplyProbeClock()
+    ReDim arr(0 To shortItems.Count - 1)
+    For i = 1 To shortItems.Count
+        arr(i - 1) = shortItems(i)
+    Next i
+    indexMs = (ApplyProbeClock() - t) * 1000#
+
+    ' 대조군: 같은 Collection의 순차 열거로 동일 배열을 만든다.
+    t = ApplyProbeClock()
+    ReDim direct(0 To shortItems.Count - 1)
+    i = 0
+    For Each vKey In shortItems
+        direct(i) = vKey
+        i = i + 1
+    Next vKey
+    enumMs = (ApplyProbeClock() - t) * 1000#
+    same = True
+    For i = 0 To UBound(arr)
+        If arr(i) <> direct(i) Then same = False
+    Next i
+
+    t = ApplyProbeClock()
+    modApply.ResetFilters area
+    resetMs = (ApplyProbeClock() - t) * 1000#
+    t = ApplyProbeClock()
+    area.AutoFilter Field:=1, Criteria1:=arr, Operator:=xlFilterValues
+    filterMs = (ApplyProbeClock() - t) * 1000#
+
+    expected = (rows \ uniq) * n
+    If rows Mod uniq < n Then
+        expected = expected + rows Mod uniq
+    Else
+        expected = expected + n
+    End If
+    ' 분리 측정한 원래 배열 적용 결과와 실제 제품 함수의 가시 셀을 대조한다.
+    Dim referenceVisible As String, productVisible As String
+    Dim info As Object, productMs As Double
+    referenceVisible = area.SpecialCells(xlCellTypeVisible).Address
+    modApply.ResetFilters area
+    area.AutoFilter Field:=1, Criteria1:=Array("7"), Operator:=xlFilterValues
+    t = ApplyProbeClock()
+    Set info = modApply.ApplyDisplays(area, 1, displaySet, False, False)
+    productMs = (ApplyProbeClock() - t) * 1000#
+    productVisible = area.SpecialCells(xlCellTypeVisible).Address
+    LogShim.AssertEq "apply_stages_product_rows", referenceVisible, productVisible
+    LogShim.AssertEq "apply_stages_product_count", n, CLng(info("Applied"))
+    LogShim.AssertEq "apply_stages_product_mode", "array", CStr(info("Mode"))
+    actual = modApply.CountVisibleRows(area)
+    LogShim.AssertEq "apply_stages_array_equal", True, same
+    LogShim.AssertEq "apply_stages_visible", expected, actual
+    LogShim.LogEvent "apply_stages", _
+        Array("conditions", "rep", "classifyMs", "indexMs", "enumMs", "resetMs", "filterMs", "visible", "equal", "productMs"), _
+        Array(n, rep, classifyMs, indexMs, enumMs, resetMs, filterMs, actual, same, productMs)
+End Sub
+
+Private Function ApplyProbeClock() As Double
+    Dim ticks As Currency, frequency As Currency
+    QueryPerformanceCounter ticks
+    QueryPerformanceFrequency frequency
+    ApplyProbeClock = ticks / frequency
+End Function

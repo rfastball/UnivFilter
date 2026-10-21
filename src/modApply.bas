@@ -65,9 +65,11 @@ Public Function ApplyDisplays(ByVal rngFilterArea As Range, ByVal lField As Long
         End If
         ReDim arr(0 To n - 1)
         Dim i As Long
-        For i = 1 To nShort
-            arr(i - 1) = shortItems(i)
-        Next i
+        ' 숫자 인덱스 반복 조회는 대규모 Collection에서 급격히 느려진다.
+        For Each vKey In shortItems
+            arr(i) = vKey
+            i = i + 1
+        Next vKey
         If bIncludeBlanks Then arr(n - 1) = "="
 
         If Not bStack Then ResetFilters rngFilterArea
