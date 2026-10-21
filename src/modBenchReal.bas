@@ -2236,3 +2236,130 @@ Private Function ApplyProbeClock() As Double
     QueryPerformanceFrequency frequency
     ApplyProbeClock = ticks / frequency
 End Function
+
+' @desc 부분일치의 자산/인덱스/매칭/적용 비용과 배열 재사용 후보를 측정함
+Public Sub MeasurePartialStages()
+    Dim wb As Workbook, ws As Worksheet, body As Range, area As Range
+    Dim vals() As Variant, u As Variant, rep As Long, i As Long, n As Variant, mode As Variant
+    Dim a As clsColAsset, displays As clsSet, t As Double, buildMs As Double, indexMs As Double
+    Dim failure As String
+    On Error GoTo Failed
+    Utilities.OptimizedMode True
+    Set wb = Workbooks.Add(xlWBATWorksheet)
+    Set ws = wb.Worksheets(1)
+    Set area = ws.Range("A1:A91236")
+    Set body = ws.Range("A2:A91236")
+    ReDim vals(1 To 91235, 1 To 1)
+    ws.Range("A1").Value2 = "검색"
+    For Each u In Array(225, 47397)
+        For i = 1 To 91235
+            vals(i, 1) = "ITEM-" & Format$((i - 1) Mod CLng(u) + 1, "000000") & "-END"
+        Next i
+        body.NumberFormat = "@"
+        body.Value2 = vals
+        For rep = 1 To 3
+            modApply.ResetFilters area
+            modCache.ClearCache
+            t = ApplyProbeClock()
+            Set a = modCache.GetColumnAsset(body)
+            buildMs = (ApplyProbeClock() - t) * 1000#
+            t = ApplyProbeClock()
+            Set displays = a.Displays
+            indexMs = (ApplyProbeClock() - t) * 1000#
+            LogShim.LogEvent "partial_setup", Array("uniq", "rep", "buildMs", "indexMs"), _
+                Array(u, rep, buildMs, indexMs)
+            For Each mode In Array("selective", "miss", "broad")
+                For Each n In Array(1, 10, 50)
+                    If mode <> "broad" Or n <= 10 Then
+                        PartialStageCase a, area, CLng(u), rep, CStr(mode), CLng(n)
+                    End If
+                Next n
+            Next mode
+        Next rep
+    Next u
+    GoTo Cleanup
+Failed:
+    failure = CStr(Err.Number) & ": " & Err.Description
+Cleanup:
+    On Error Resume Next
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    modCache.ClearCache
+    Utilities.OptimizedMode False
+    On Error GoTo 0
+    LogShim.LogEvent "partial_done", Array("ok", "error"), Array(failure = "", failure)
+End Sub
+
+Private Sub PartialStageCase(ByVal a As clsColAsset, ByVal area As Range, ByVal uniq As Long, _
+                             ByVal rep As Long, ByVal mode As String, ByVal n As Long)
+    Dim tokens() As Variant, i As Long, k As Long, keys As Variant, token As String
+    ReDim tokens(0 To n - 1)
+    For i = 0 To n - 1
+        Select Case mode
+            Case "selective": tokens(i) = Format$(i + 1, "000000")
+            Case "miss": tokens(i) = "MISS" & CStr(i)
+            Case "broad": tokens(i) = CStr(i)
+        End Select
+    Next i
+    Dim t As Double, matchMs As Double, copyMs As Double, scanMs As Double, candidateMs As Double
+    Dim applyMs As Double, expectedMs As Double, countMs As Double
+    Dim r As Object, hitSet As clsSet, ai As Object, hits As Long, found As Boolean, missing As Long
+    t = ApplyProbeClock()
+    Set r = modMatch.Execute(tokens, a, True)
+    matchMs = (ApplyProbeClock() - t) * 1000#
+
+    t = ApplyProbeClock()
+    For i = 0 To n - 1
+        keys = a.Displays.KeysArray
+    Next i
+    copyMs = (ApplyProbeClock() - t) * 1000#
+    t = ApplyProbeClock()
+    For i = 0 To n - 1
+        token = CStr(tokens(i))
+        For k = LBound(keys) To UBound(keys)
+            If InStr(1, CStr(keys(k)), token, vbTextCompare) > 0 Then hits = hits + 1
+        Next k
+    Next i
+    scanMs = (ApplyProbeClock() - t) * 1000#
+
+    ' 후보는 키 배열을 한번만 얻는다. 실제 매칭 집합과 누락 수를 대조한다.
+    t = ApplyProbeClock()
+    Set hitSet = New clsSet
+    keys = a.Displays.KeysArray
+    For i = 0 To n - 1
+        found = False
+        token = CStr(tokens(i))
+        For k = LBound(keys) To UBound(keys)
+            If InStr(1, CStr(keys(k)), token, vbTextCompare) > 0 Then
+                hitSet.Add keys(k)
+                found = True
+            End If
+        Next k
+        If Not found Then missing = missing + 1
+    Next i
+    candidateMs = (ApplyProbeClock() - t) * 1000#
+    LogShim.AssertEq "partial_candidate_count", r("Matched").Count, hitSet.Count
+    LogShim.AssertEq "partial_candidate_keys", CLng(0), r("Matched").Difference(hitSet).Count
+    LogShim.AssertEq "partial_candidate_missing", UBound(r("Missing")) - LBound(r("Missing")) + 1, missing
+
+    modApply.ResetFilters area
+    t = ApplyProbeClock()
+    If hitSet.Count > 0 Then
+        Set ai = modApply.ApplyDisplays(area, 1, r("Matched"), False, False)
+    Else
+        modApply.ApplyHideAll area, 1, False
+    End If
+    applyMs = (ApplyProbeClock() - t) * 1000#
+    Dim expected As Long, visible As Long
+    t = ApplyProbeClock()
+    expected = a.ExpectedRows(r("Matched"), False)
+    expectedMs = (ApplyProbeClock() - t) * 1000#
+    t = ApplyProbeClock()
+    visible = modApply.CountVisibleRows(area)
+    countMs = (ApplyProbeClock() - t) * 1000#
+    LogShim.AssertEq "partial_visible", expected, visible
+    LogShim.LogEvent "partial_stages", _
+        Array("uniq", "rep", "mode", "tokens", "matched", "hitPairs", "matchMs", "copyMs", _
+              "scanMs", "candidateMs", "applyMs", "expectedMs", "countMs"), _
+        Array(uniq, rep, mode, n, hitSet.Count, hits, matchMs, copyMs, scanMs, candidateMs, _
+              applyMs, expectedMs, countMs)
+End Sub
