@@ -2558,3 +2558,90 @@ Private Sub AhoProbeParity()
         End If
     Next tc
 End Sub
+
+' @desc 검색어 수와 표시문자열 길이에 따른 Aho 전환점을 측정함
+Public Sub MeasureAhoCrossover()
+    AhoCrossoverGrid Array(225, 47397), Array(15, 64, 128), Array(1, 2, 3, 5, 8, 10)
+End Sub
+
+' @desc 긴 표시문자열에서 다검색어 Aho 전환점을 추가 측정함
+Public Sub MeasureAhoLongCrossover()
+    AhoCrossoverGrid Array(47397), Array(64, 128), Array(20, 50)
+End Sub
+
+Private Sub AhoCrossoverGrid(ByVal sizes As Variant, ByVal widths As Variant, ByVal counts As Variant)
+    Dim u As Variant, width As Variant, count As Variant, mode As Variant
+    Dim values() As Variant, tokens As Variant, i As Long, rep As Long
+    Dim displays As clsSet, asset As clsColAsset, emptyMap As Object
+    Dim failure As String
+    On Error GoTo Failed
+    AhoProbeParity
+    For Each u In sizes
+        For Each width In widths
+            ReDim values(0 To CLng(u) - 1)
+            For i = 0 To CLng(u) - 1
+                values(i) = "ITEM-" & String$(CLng(width) - 15, "x") & Format$(i + 1, "000000") & "-END"
+            Next i
+            Set displays = New clsSet
+            displays.LoadFromArray values
+            Set emptyMap = CreateObject("Scripting.Dictionary")
+            Set asset = New clsColAsset
+            asset.Init displays, emptyMap, emptyMap, 0, CLng(u), "실험", Nothing
+            For Each mode In Array("selective", "miss", "broad")
+                For Each count In counts
+                    ReDim tokens(0 To CLng(count) - 1)
+                    For i = 0 To CLng(count) - 1
+                        Select Case CStr(mode)
+                            Case "selective": tokens(i) = Format$(i + 1, "000000")
+                            Case "miss": tokens(i) = "MISS" & Format$(i, "00")
+                            Case "broad": tokens(i) = CStr(i)
+                        End Select
+                    Next i
+                    For rep = 1 To 5
+                        AhoCrossoverCase asset, tokens, CLng(u), CLng(width), CStr(mode), rep
+                    Next rep
+                Next count
+            Next mode
+        Next width
+    Next u
+    GoTo Done
+Failed:
+    failure = CStr(Err.Number) & ": " & Err.Description
+Done:
+    LogShim.LogEvent "aho_crossover_done", Array("ok", "error"), Array(failure = "", failure)
+End Sub
+
+Private Sub AhoCrossoverCase(ByVal asset As clsColAsset, ByRef tokens As Variant, _
+                             ByVal uniq As Long, ByVal width As Long, ByVal mode As String, ByVal rep As Long)
+    Dim r As Object, actual As clsSet, keys As Variant, hit() As Boolean
+    Dim t As Double, baselineMs As Double, ahoMs As Double, buildMs As Double, scanMs As Double
+    Dim fallback As Long, phase As Long, baselineFirst As Boolean
+    baselineFirst = (rep Mod 2 = 1)
+    For phase = 0 To 1
+        If (phase = 0) = baselineFirst Then
+            t = ApplyProbeClock()
+            Set r = modMatch.Execute(tokens, asset, True)
+            baselineMs = (ApplyProbeClock() - t) * 1000#
+        Else
+            t = ApplyProbeClock()
+            keys = asset.Displays.KeysArray
+            Set actual = AhoProbe(keys, tokens, hit, buildMs, scanMs, fallback)
+            ahoMs = (ApplyProbeClock() - t) * 1000#
+        End If
+    Next phase
+    LogShim.AssertEq "crossover_count", r("Matched").Count, actual.Count
+    LogShim.AssertEq "crossover_keys", CLng(0), r("Matched").Difference(actual).Count
+    LogShim.AssertEq "crossover_ascii", CLng(0), fallback
+    Dim missing As Object, item As Variant, i As Long
+    Set missing = CreateObject("Scripting.Dictionary")
+    missing.CompareMode = vbTextCompare
+    For Each item In r("Missing")
+        missing(CStr(item)) = True
+    Next item
+    For i = LBound(tokens) To UBound(tokens)
+        LogShim.AssertEq "crossover_token", Not missing.exists(CStr(tokens(i))), hit(i)
+    Next i
+    LogShim.LogEvent "aho_crossover", _
+        Array("uniq", "length", "mode", "tokens", "rep", "baselineFirst", "baselineMs", "ahoMs", "buildMs", "scanMs"), _
+        Array(uniq, width, mode, UBound(tokens) + 1, rep, baselineFirst, baselineMs, ahoMs, buildMs, scanMs)
+End Sub
