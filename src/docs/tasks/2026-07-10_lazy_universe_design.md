@@ -295,3 +295,46 @@ BuildPerCell도 InitRendered로 자산을 만든다. 분할 실패 지문은 블
 지속적 Excel 기동 증분 0(기존 스위트 프로세스 재사용), 이번 검증은 push 3회 + 단독 run 2회
 + 전체 test 2회로 숨은 Excel 7회 사용. coverage 기준 변경 및 제거한 테스트는 없다.
 다양한 고유 서식이 많은 실제 병리적 열의 성능은 별도 측정하지 않았다.
+
+## 2026-10-22 실제 Esc/Ctrl+Break 중단 검증
+
+판정: 커서 설정 제거(22f1cfd)는 유효하지만 계산/이벤트 복원 누락은 남아 있다.
+제품 코드는 수정하지 않고 modBenchReal에 수동 Prepare/Inspect/CleanupInterruptProbe를 추가했다.
+검증 대상은 같은 코드의 실제 frmFilter01 -> RunFilter 경로다. 합성 50,000행(248자 텍스트),
+한글 누락 검색어 2,000개, 포함/새검색/부분일치 모드. UI에서 확인을 눌러 "처리 중..."를
+확인한 뒤 Windows 키 입력으로 각각 Escape, Control_L+Break를 보냈다.
+두 번 모두 Microsoft Visual Basic의 "코드 실행이 중단되었습니다" 대화상자를 관측했다.
+
+| 설정 | 실행 전 | Esc 후 | Ctrl+Break 후 | 무실행 대조군 |
+|---|---|---|---|---|
+| Cursor | xlDefault (-4143) | 동일 | 동일 | 동일 |
+| ScreenUpdating | True | True | True | True |
+| Calculation | Automatic (-4105) | Manual (-4135), 실패 | Manual (-4135), 실패 | Automatic |
+| EnableEvents | True | False, 실패 | False, 실패 | True |
+
+각 키 실험은 중단 대화상자에서 종료한 뒤 설정을 관측했다. Esc는 UI 요소 클릭이 실패하여
+다음 vbaloop run의 watchdog이 남은 대화상자를 종료(E)로 닫았고, Ctrl+Break는 UI의 Alt+E로
+종료했다. 정상 복귀/계속(C)을 선택한 결과가 아니다. 두 실험은 각각 상태 단언 2개 실패.
+vbaloop 자체의 설정 변경 가능성을 배제하기 위해 Prepare 직후 필터를 실행하지 않고
+Inspect를 호출한 대조군도 확인했다(4개 단언 모두 통과).
+
+원인: EnableCancelKey는 xlInterrupt(1)이며 RunFilter는 이를 xlErrorHandler로 바꾸지 않는다.
+중단 대화상자의 End는 RunFilter.Cleanup/Utilities.OptimizedMode(False)를 실행하지 않는다.
+화면 갱신 True 관측이 제품 Cleanup 실행의 증거는 아니다. 계산/이벤트는 명백히 잔류했다.
+후속 수정은 실행 경계에서 사용자 중단을 오류 18로 받아 공통 복원 경로로 보내고,
+복원 중 재중단과 취소 모드 복원까지 다룬 뒤 같은 실제 키 실험으로 확인해야 한다.
+이번 요청은 검증이므로 제품의 중단 처리 동작은 변경하지 않았다.
+
+재현: vbaloop session start -> run modBenchReal.PrepareInterruptProbe -> 실제 폼에서
+텍스트 포함 검색 선택/확인 -> 실행 중 중단 키 -> 종료 -> run modBenchReal.InspectInterruptProbe
+-> run modBenchReal.CleanupInterruptProbe. 모든 매크로 호출은 vbaloop run을 사용한다.
+Prepare는 검증 전용 Excel에서만 실행한다(기준값을 기본 커서/자동 계산/화면·이벤트 활성으로 설정).
+raw 로그: ../reference/2026-10-22_interrupt_state.jsonl.
+Esc 기준/관측 23:14:16 / 23:15:11, Ctrl+Break 23:15:34 / 23:16:13, 대조군 23:16:50 / 23:16:52(KST).
+
+테스트 비용: 기존 modBenchReal의 수동 프로브 3개 추가, 자동 수집 사례 +0, 기존 테스트/fixture
+삭제 없음, coverage 기준 변경 없음. 자동 스위트 67 pass / 0 fail / 0 skipped는 정상 실행
+회귀 게이트이며 실제 키 실험 실패를 상쇄하지 않는다. 이번 Excel 기동은 주입 2회/검증 세션
+2회(초기 기준값 보정용 준비 1회 포함). 자동 스위트 실행시간 증분 0(새 수동 프로브 미수집),
+수동 UI 실행시간은 도구/사용자 응답 대기를 포함하므로 성능 수치로 보고하지 않는다.
+검증 후 계산/이벤트를 기준값으로 복구하고 임시 시트를 삭제했다.

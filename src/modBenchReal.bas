@@ -2913,3 +2913,82 @@ Private Function NativePartialToken(ByVal t As String, ByVal asset As clsColAsse
     End If
     NativePartialToken = hit
 End Function
+' @desc 실제 중단 키 검증용 합성 열과 필터 폼을 준비함
+Public Sub PrepareInterruptProbe()
+    Dim ws As Worksheet, data() As Variant, i As Long, tokens As String
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("UF_InterruptProbe")
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add
+        ws.Name = "UF_InterruptProbe"
+    End If
+    ws.Cells.Clear
+    Application.Cursor = xlDefault
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    Application.EnableEvents = True
+    ws.Range("B1").Value2 = CLng(Application.Cursor)
+    ws.Range("B2").Value2 = Application.ScreenUpdating
+    ws.Range("B3").Value2 = CLng(Application.Calculation)
+    ws.Range("B4").Value2 = Application.EnableEvents
+    ws.Range("B5").Value2 = CLng(Application.EnableCancelKey)
+    ws.Range("A1").Value2 = "중단 검증"
+    ReDim data(1 To 50000, 1 To 1)
+    For i = 1 To 50000
+        data(i, 1) = String$(240, "x") & "한글" & Format$(i, "000000")
+    Next i
+    ws.Range("A2:A50001").Value2 = data
+    For i = 1 To 2000
+        If i > 1 Then tokens = tokens & vbLf
+        tokens = tokens & "미일치" & CStr(i)
+    Next i
+    ws.Activate
+    modCache.ClearCache
+    Dim frm As frmFilter01
+    Set frm = New frmFilter01
+    Set frm.InjectBodyRange = ws.Range("A2:A50001")
+    Set frm.InjectFilterArea = ws.Range("A1:A50001")
+    frm.InjectRelativeCol = 1
+    frm.InjectHeaderName = "중단 검증"
+    frm.txtFilterValues.text = tokens
+    frm.Show vbModeless
+    LogShim.LogEvent "interrupt_before", _
+        Array("cursor", "screen", "calculation", "events", "cancelKey"), _
+        Array(Application.Cursor, Application.ScreenUpdating, Application.Calculation, _
+              Application.EnableEvents, Application.EnableCancelKey)
+End Sub
+
+' @desc 실제 키 중단 뒤 전역 설정을 관측하고 준비 시점과 대조함
+Public Sub InspectInterruptProbe()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("UF_InterruptProbe")
+    LogShim.LogEvent "interrupt_after", _
+        Array("cursor", "screen", "calculation", "events", "cancelKey"), _
+        Array(Application.Cursor, Application.ScreenUpdating, Application.Calculation, _
+              Application.EnableEvents, Application.EnableCancelKey)
+    LogShim.AssertEq "interrupt_cursor", CLng(ws.Range("B1").Value2), CLng(Application.Cursor)
+    LogShim.AssertEq "interrupt_screen", CBool(ws.Range("B2").Value2), Application.ScreenUpdating
+    LogShim.AssertEq "interrupt_calculation", CLng(ws.Range("B3").Value2), CLng(Application.Calculation)
+    LogShim.AssertEq "interrupt_events", CBool(ws.Range("B4").Value2), Application.EnableEvents
+End Sub
+
+' @desc 중단 프로브의 설정과 스크래치 시트를 정리함
+Public Sub CleanupInterruptProbe()
+    Dim ws As Worksheet, frm As Object, alerts As Boolean
+    Set ws = ThisWorkbook.Worksheets("UF_InterruptProbe")
+    For Each frm In VBA.UserForms
+        Unload frm
+    Next frm
+    Utilities.OptimizedMode False
+    Application.Cursor = CLng(ws.Range("B1").Value2)
+    Application.Calculation = CLng(ws.Range("B3").Value2)
+    Application.EnableEvents = CBool(ws.Range("B4").Value2)
+    Application.ScreenUpdating = CBool(ws.Range("B2").Value2)
+    Application.EnableCancelKey = CLng(ws.Range("B5").Value2)
+    alerts = Application.DisplayAlerts
+    Application.DisplayAlerts = False
+    ws.Delete
+    Application.DisplayAlerts = alerts
+    modCache.ClearCache
+End Sub
