@@ -269,3 +269,29 @@ copy/scan/candidate는 독립 실행이므로 matchMs에서 정확히 합산/차
 검증: 기존 테스트 65 pass / 0 fail / 0 skipped. 자동 수집 사례 +0, coverage 변경 없음.
 수동 벤치 최종 실행 26.5초, Excel 기동 1회(계측 대조 조건 수정 전 예비 실행 별도 1회).
 기존 modBenchReal 소유자를 확장하여 중복 fixture/자동 테스트를 만들지 않았다.
+
+## 2026-10-22 셀별 폴백의 값 보정 계약 통일
+
+기존 Stage C 이후 벌크는 후보 렌더링, 셀별 폴백은 원시 ValueMap 조회를 사용했다.
+값 1.41 / 서식 0.0 / 입력 "1.44"에서 벌크는 "1.4"로 보정하지만 폴백은 누락했다.
+Test_CS_FallbackMatch를 먼저 추가하고 vbaloop run으로 실행해 단언 27개 실패를 확인했다.
+run 명령의 ok는 매크로 실행 여부이며, 재현 판정은 failedAsserts와 LogShim 기록을 사용했다.
+
+BuildPerCell도 InitRendered로 자산을 만든다. 분할 실패 지문은 블록 서식이 없으므로
+모든 행의 고유 서식을 셀별 스캔 중 보관하고, ExecuteScan의 후보 렌더링에 전달한다.
+폴백의 즉시 값지도/행수지도 누적과 중복 AppendVm은 제거하고 기존 지연 인덱스를 재사용한다.
+수동 Init 자산의 ValueMap 계약과 부분일치는 유지한다. 실제 열의 값 보정은 이제 단일 계약이다.
+
+검증: 균일/혼합 서식, 분할 실패 지문, 표시 적중, 반올림 보정, 원시값 보정,
+누락, 토큰과 후보의 중첩, 빈칸에만 있는 서식의 후보 사용을 한 스크래치 시트에서 대조했다. 분할 실패는 실제 대량 서식
+생성 대신 ComputeSignature가 실패 시 반환하는 지문을 주입하므로 분할 임계치 자체는 검증하지 않는다.
+수정 후 동일 단독 실행 failedAsserts=0, push VBE compile=compiled,
+전체 vbaloop test 67 pass / 0 fail / 0 skipped.
+원시 단언: ../reference/2026-10-22_fallback_match.jsonl.
+
+테스트 비용: 기존 Test_ColumnScan 모듈에 수집 사례 +1, 새 테스트 파일/fixture/CI lane 없음.
+최초 회귀 사례의 동일 단독 실행은 수정 전 525ms, 후 523ms(각 1회, 속도 개선 근거 아님).
+기존 스위트 대비 실행시간 증가는 별도 측정하지 않았으며 추가 사례 비용은 약 0.52초다.
+지속적 Excel 기동 증분 0(기존 스위트 프로세스 재사용), 이번 검증은 push 3회 + 단독 run 2회
++ 전체 test 2회로 숨은 Excel 7회 사용. coverage 기준 변경 및 제거한 테스트는 없다.
+다양한 고유 서식이 많은 실제 병리적 열의 성능은 별도 측정하지 않았다.

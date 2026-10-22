@@ -9,7 +9,7 @@ Option Explicit
 ' 자산 내부 렌더키 1패스 멤버십(ScanCount, 실측 91k행 ~10ms)으로 매칭하고, 매칭
 ' 행수를 부산물(MatchedRows)로 반환해 자가검증이 스캔에 공짜로 얹힌다. 값 레인은
 ' "파싱값이 블록 서식으로 렌더되면 우주에 어떤 키인가"(RenderValueKey) 후보의
-' 멤버십 - 표시 의미론으로 일관된다. 부분일치/레거시 자산(병리적/벌크 실패)은
+' 멤버십 - 셀별 폴백도 같은 경로를 사용한다. 부분일치/수동 인덱스 자산은
 ' 기존 인덱스 경로 유지(지연 구축 1회, MatchedRows=-1).
 
 ' @desc 토큰 배열과 자산 받아 매칭/누락/보정 결과 반환, 토큰 없으면 빈 결과 반환
@@ -174,8 +174,12 @@ Done:
     Set ExecuteScan = result
 End Function
 
-' 자산 지문에서 블록 서식 목록을 수집한다(균일이면 1개, 병리적 자산은 미호출).
+' 자산 지문에서 블록 서식을 수집한다. 분할 실패 시 셀별 관측 서식을 사용한다.
 Private Function BlockFormats(ByVal asset As clsColAsset) As Collection
+    If Not asset.FallbackFormats Is Nothing Then
+        Set BlockFormats = asset.FallbackFormats
+        Exit Function
+    End If
     Dim c As New Collection
     Dim sig As clsColSig
     Set sig = asset.Signature

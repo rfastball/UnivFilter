@@ -2,7 +2,7 @@ Attribute VB_Name = "Test_ColumnScan"
 ' SPDX-License-Identifier: MIT
 ' Copyright (c) 2026 JM - see LICENSE
 ' @desc modColumnScan 자산 구축 계약 단위테스트 담당
-' @depends modColumnScan, clsColAsset, clsColSig, clsSet, LogShim
+' @depends modMatch, modColumnScan, clsColAsset, clsColSig, clsSet, LogShim
 Option Explicit
 
 ' 2026-07 재설계 스펙: 실측 표시 키 규칙(gap-probe-findings.md)을 고정한다.
@@ -412,6 +412,69 @@ Public Sub Test_CS_BulkRenderEquiv()
     ws.Columns("A").ColumnWidth = 24
 
     DropSheet
+End Sub
+
+' @desc 벌크와 강제 폴백의 후보 렌더링 매칭 계약을 검증함
+Public Sub Test_CS_FallbackMatch()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    On Error GoTo Fail
+    Dim scenario As Long, rng As Range, sig As clsColSig, content As Variant
+    Dim fast As clsColAsset, fallback As clsColAsset
+    Dim expected As Object, actual As Object, inputs As Variant, tokens As Variant
+    Dim key As Variant, tag As String
+    inputs = Array(Array("1.44"), Array("1.4"), Array("9.99"), _
+                   Array("1.410"), Array("1.44", "1.4", "9.99"))
+    For scenario = 1 To 3
+        ws.Cells.Clear
+        ws.Range("A1").NumberFormat = "0.0"
+        ws.Range("A1").Value2 = 1.41
+        Set rng = ws.Range("A1")
+        If scenario > 1 Then
+            ws.Range("A2").NumberFormat = "0.00"
+            ws.Range("A2").Value2 = 1.41
+            ws.Range("A3").NumberFormat = "@"
+            ws.Range("A3").Value2 = "1"
+            ws.Range("A4").NumberFormat = "0"
+            Set rng = ws.Range("A1:A4")
+        End If
+        modColumnScan.G_ForceLegacyRender = False
+        Set fast = modColumnScan.BuildAsset(rng, "빠른 경로")
+        LogShim.AssertEq "fallback_fast_rendered", True, fast.HasRendered
+        Set sig = modColumnScan.ComputeSignature(rng)
+        If scenario = 3 Then
+            ' 분할 예산 초과 시 생성되는 지문: 블록 목록 없이 셀별 서식만 사용한다.
+            content = sig.ContentVec
+            sig.Init rng.Rows.Count, content, False, "", Nothing, True
+        End If
+        modColumnScan.G_ForceLegacyRender = True
+        Set fallback = modColumnScan.BuildAssetFromSig(rng, "폴백", sig)
+        modColumnScan.G_ForceLegacyRender = False
+        For Each tokens In inputs
+            tag = "fallback_" & CStr(scenario) & "_" & Join(tokens, "/")
+            Set expected = modMatch.Execute(tokens, fast, False)
+            Set actual = modMatch.Execute(tokens, fallback, False)
+            If CStr(tokens(0)) = "1.44" Then
+                LogShim.AssertEq tag & "_oracle", True, expected("Matched").Contains("1.4")
+            End If
+            LogShim.AssertEq tag & "_count", expected("Matched").Count, actual("Matched").Count
+            LogShim.AssertEq tag & "_keys", CLng(0), expected("Matched").Difference(actual("Matched")).Count
+            LogShim.AssertEq tag & "_missing", Join(expected("Missing"), "|"), Join(actual("Missing"), "|")
+            LogShim.AssertEq tag & "_corrections", expected("Corrections").Count, actual("Corrections").Count
+            For Each key In expected("Corrections").Keys
+                LogShim.AssertEq tag & "_corrected", CStr(expected("Corrections")(key)), CStr(actual("Corrections")(key))
+            Next key
+            LogShim.AssertEq tag & "_rows", fast.ExpectedRows(expected("Matched"), False), _
+                                                   fallback.ExpectedRows(actual("Matched"), False)
+        Next tokens
+    Next scenario
+Cleanup:
+    modColumnScan.G_ForceLegacyRender = False
+    DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "fallback_error", "", Err.Description
+    Resume Cleanup
 End Sub
 
 ' 균일 서식 열 1개를 구성해 동치 대조까지 수행한다(withBlank는 빈칸 행, withErr는 =NA() 행 추가).

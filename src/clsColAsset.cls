@@ -31,6 +31,7 @@ Private mSignature As clsColSig
 ' 행별 표시키 배열(1..RowCount, 빈칸 행은 ""). InitRendered 경로에서만 보유.
 Private mRenderedVec() As String
 Private mHasRendered As Boolean
+Private mFallbackFormats As Collection
 ' 인덱스(집합/지도) 구축 완료 여부 - Init(주입)은 즉시 True, InitRendered는 지연.
 Private mIndexesBuilt As Boolean
 
@@ -46,20 +47,27 @@ Public Sub Init(ByVal displaySet As clsSet, ByVal valueMap As Object, _
     mID = sID
     Set mSignature = sig
     mHasRendered = False
+    Set mFallbackFormats = Nothing
     mIndexesBuilt = True
 End Sub
 
 ' @desc 행별 렌더키 배열 주입받아 자산 초기화함, 인덱스는 최초 접근 시 지연 구축
 Public Sub InitRendered(ByRef renderedVec() As String, ByVal lBlankCount As Long, _
-                        ByVal lRowCount As Long, ByVal sID As String, ByVal sig As clsColSig)
+                        ByVal lRowCount As Long, ByVal sID As String, ByVal sig As clsColSig, _
+                        Optional ByVal fallbackFormats As Collection = Nothing)
     mRenderedVec = renderedVec
     mBlankCount = lBlankCount
     mRowCount = lRowCount
     mID = sID
     Set mSignature = sig
     mHasRendered = True
+    Set mFallbackFormats = fallbackFormats
     mIndexesBuilt = False
 End Sub
+
+Public Property Get FallbackFormats() As Collection
+    Set FallbackFormats = mFallbackFormats
+End Property
 
 Public Property Get HasRendered() As Boolean
     HasRendered = mHasRendered
@@ -191,7 +199,7 @@ Private Sub EnsureIndexes()
     Set mRowCountByKey = rowByKey
 End Sub
 
-' 값 지도에 표시 키를 vbNullChar로 이어붙인다(modColumnScan.AppendVm과 동일 규칙).
+' 값 지도에 표시 키를 vbNullChar로 이어붙인다.
 Private Sub AppendVm(ByVal vm As Object, ByVal vk As String, ByVal key As String)
     If vm.exists(vk) Then
         If InStr(1, vbNullChar & vm(vk) & vbNullChar, vbNullChar & key & vbNullChar) = 0 Then

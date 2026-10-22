@@ -22,7 +22,7 @@ Option Explicit
 '    혼합 범위에서 Null인 성질을 이진 분할로 재귀해 블록 경계만 찾는다(TryPartition,
 '    O(블록수 x logN) 프로브 - 지문 계산이 수행).
 '  - 병리적(셀마다 다른 서식, 예산 초과) 또는 벌크 실패(희소): 셀별 렌더 폴백
-'    (BuildPerCell)이 즉시 인덱스 자산을 구축한다.
+'    (BuildPerCell)도 렌더키 배열을 구축해 같은 매칭 경로를 사용한다.
 '  - 값 지도 값은 clsSet 대신 vbNullChar 연결 문자열 - 값당 객체 생성 비용 회피.
 
 Private Const PARTITION_BUDGET As Long = 2000
@@ -133,12 +133,10 @@ Public Function BuildAssetFromSig(ByVal rngCol As Range, ByVal sID As String, _
 
     ' 셀별 렌더 경로: 병리적 서식 / 벌크 실패 / 테스트 훅.
     ' 키 규칙은 벌크와 동일한 캐논(fmtLocal + WText) - CF 분기 불요(WText는 CF 무관).
-    blankCount = BuildPerCell(rTarget, v2, nRows, vm, rowByKey)
-
-    ' 표시 집합: 행수 지도의 키가 곧 고유 표시 키
-    displays.LoadFromArray rowByKey.Keys
-
-    asset.Init displays, vm, rowByKey, blankCount, nRows, sID, sig
+    Dim fallbackFormats As Collection
+    If sig.IsPathological Then Set fallbackFormats = New Collection
+    blankCount = BuildPerCell(rTarget, v2, nRows, keys, fallbackFormats)
+    asset.InitRendered keys, blankCount, nRows, sID, sig, fallbackFormats
     Set BuildAssetFromSig = asset
 End Function
 
@@ -417,16 +415,27 @@ End Function
 ' 폭 잘림/CF/행숨김 이력 저하와 무관하다(P7/P11/P12 + ProbeTextDecay 실측).
 ' fmtLocal은 이력 저하 면역 실측(ProbeDisplayMap). AutoFit 재독은 소멸.
 Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
-                             ByVal nRows As Long, ByVal vm As Object, _
-                             ByVal rowByKey As Object) As Long
-    Dim keys() As String
+                             ByVal nRows As Long, ByRef keys() As String, _
+                             ByVal formats As Collection) As Long
     ReDim keys(1 To nRows)
+
+    Dim seenFormats As Object
+    If Not formats Is Nothing Then Set seenFormats = CreateObject("Scripting.Dictionary")
 
     Dim i As Long
     Dim c As Range, f As String
     For i = 1 To nRows
+        ' 분할 실패 시 숫자 없는 행의 서식도 후보에 포함해 블록 경로와 맞춘다.
+        If Not formats Is Nothing Then
+            f = SafeFmtLocal(rTarget.Cells(i, 1))
+            If Not seenFormats.exists(f) Then
+                seenFormats(f) = True
+                formats.Add f
+            End If
+        End If
         If IsEmpty(v2(i, 1)) Then
             keys(i) = ""
+            BuildPerCell = BuildPerCell + 1
         ElseIf IsError(v2(i, 1)) Then
             keys(i) = ErrKey(v2(i, 1))                   ' 캐논 에러 문자열 (P12)
             If Len(keys(i)) = 0 Then keys(i) = rTarget.Cells(i, 1).Text
@@ -436,7 +445,7 @@ Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
             If v2(i, 1) Then keys(i) = "TRUE" Else keys(i) = "FALSE"   ' 캐논 (P12)
         ElseIf VarType(v2(i, 1)) = vbDouble Then
             Set c = rTarget.Cells(i, 1)
-            f = SafeFmtLocal(c)
+            If formats Is Nothing Then f = SafeFmtLocal(c)
             If f = "@" Then
                 keys(i) = SafeWText(v2(i, 1), "General") ' @숫자 = General 캐논 (P11)
             Else
@@ -448,32 +457,7 @@ Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
         End If
     Next i
 
-    Dim blankCount As Long, k As String
-    For i = 1 To nRows
-        If IsEmpty(v2(i, 1)) Then
-            blankCount = blankCount + 1
-        Else
-            k = keys(i)
-            If Len(k) > 0 Then
-                rowByKey(k) = rowByKey(k) + 1
-                If VarType(v2(i, 1)) = vbDouble Then AppendVm vm, CStr(v2(i, 1)), k
-            End If
-        End If
-    Next i
-
-    BuildPerCell = blankCount
 End Function
-
-' 값 지도에 표시 키를 vbNullChar로 이어붙인다(블록 간 중복 키 방지).
-Private Sub AppendVm(ByVal vm As Object, ByVal vk As String, ByVal key As String)
-    If vm.exists(vk) Then
-        If InStr(1, vbNullChar & vm(vk) & vbNullChar, vbNullChar & key & vbNullChar) = 0 Then
-            vm(vk) = vm(vk) & vbNullChar & key
-        End If
-    Else
-        vm(vk) = key
-    End If
-End Sub
 
 ' 주입 범위를 신뢰한다: 끝쪽 빈칸도 필터 대상 행이다.
 ' (true last row 방어는 범위를 만드는 호출부 소관 - modUnivFilter.ResolveFilterTarget)
