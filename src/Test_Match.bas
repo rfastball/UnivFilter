@@ -74,6 +74,68 @@ Public Sub Test_MT_Partial()
     LogShim.AssertEq "mt_partial_missing", CLng(1), MissingCount(r)
 End Sub
 
+' @desc 혼합 부분일치의 겹침과 누락 순서 및 폴백을 검증함
+Public Sub Test_MT_PartialHybrid()
+    Dim displays As clsSet, asset As clsColAsset, emptyMap As Object, actual As Object
+    Dim expected As clsSet, keys As Variant, tokens() As Variant, hit() As Boolean
+    Dim spec As Variant, specs As Variant, width As Long, n As Long, i As Long, j As Long
+    Dim missing As String, actualMissing As Variant, specials As Variant, value As Variant
+    specs = Array(Array(15, 9), Array(15, 10), Array(64, 19), Array(64, 20), _
+                  Array(128, 49), Array(128, 50), Array(15, 11), Array(15, 12), Array(15, 13))
+    specials = Array("ushers", "SHE", "aaaa", "ababa", "ABC", "한글ABC", _
+                     ChrW(&HFF21) & "BC", "a" & vbNullChar & "b", "", "I", ChrW(&H130), ChrW(&H131))
+    For Each spec In specs
+        width = spec(0): n = spec(1)
+        Set displays = New clsSet
+        For i = 1 To 1025
+            displays.Add String$(width - 6, "x") & Format$(i, "000000")
+        Next i
+        For Each value In specials
+            displays.Add value
+        Next value
+        Set emptyMap = CreateObject("Scripting.Dictionary")
+        Set asset = New clsColAsset
+        asset.Init displays, emptyMap, emptyMap, 0, displays.Count, "혼합 단위검증", Nothing
+        ReDim tokens(1 To n)
+        For i = 1 To n
+            tokens(i) = "MISS" & CStr(i)
+        Next i
+        tokens(1) = "he": tokens(2) = "she": tokens(3) = "hers"
+        tokens(4) = "a": tokens(5) = "aa": tokens(6) = "aba"
+        tokens(7) = "ABC": tokens(8) = "abc": tokens(9) = "i"
+        If n = 11 Then tokens(10) = "한글"
+        If n = 12 Then tokens(10) = ""
+        If n = 13 Then tokens(10) = String$(8193, "x")
+        keys = displays.KeysArray
+        ReDim hit(1 To n)
+        Set expected = New clsSet
+        For i = LBound(keys) To UBound(keys)
+            For j = 1 To n
+                If InStr(1, CStr(keys(i)), CStr(tokens(j)), vbTextCompare) > 0 Then
+                    expected.Add keys(i)
+                    hit(j) = True
+                End If
+            Next j
+        Next i
+        missing = ""
+        For j = 1 To n
+            If Not hit(j) Then missing = missing & CStr(tokens(j)) & vbNullChar
+        Next j
+        Set actual = modMatch.Execute(tokens, asset, True)
+        LogShim.AssertEq "mt_hybrid_count", expected.Count, actual("Matched").Count
+        LogShim.AssertEq "mt_hybrid_keys", CLng(0), expected.Difference(actual("Matched")).Count
+        actualMissing = actual("Missing")
+        actualMissing = Join(actualMissing, vbNullChar)
+        If Len(actualMissing) > 0 Then actualMissing = actualMissing & vbNullChar
+        LogShim.AssertEq "mt_hybrid_missing_order", missing, CStr(actualMissing)
+        LogShim.AssertEq "mt_hybrid_inputs", n, actual("InputCount")
+        LogShim.AssertEq "mt_hybrid_rows", CLng(-1), actual("MatchedRows")
+        LogShim.AssertEq "mt_hybrid_corrections", CLng(0), actual("Corrections").Count
+    Next spec
+    Set actual = modMatch.Execute(Array(), asset, True)
+    LogShim.AssertEq "mt_hybrid_empty", CLng(0), actual("Matched").Count
+End Sub
+
 ' @desc 제외 여집합(표시 집합 수준)을 검증함
 Public Sub Test_MT_ExcludeComplement()
     Dim asset As clsColAsset

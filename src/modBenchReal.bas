@@ -2651,6 +2651,16 @@ Public Sub MeasureHybridSearch()
     HybridSearchGrid "sample"
 End Sub
 
+' @desc 제품 혼합 검색의 결과와 전체 실행 시간을 검증함
+Public Sub MeasureHybridProductSearch()
+    HybridSearchGrid "product"
+End Sub
+
+' @desc 제품의 소수 검색어와 유니코드 폴백 비용을 반복 검증함
+Public Sub MeasureHybridProductFallback()
+    HybridSearchGrid "product-fallback"
+End Sub
+
 ' @desc 길이와 검색어 수를 쓰는 저비용 혼합 규칙을 검증함
 Public Sub MeasureHybridStaticSearch()
     HybridSearchGrid "length"
@@ -2658,7 +2668,7 @@ End Sub
 
 Private Sub HybridSearchGrid(ByVal policy As String)
     Dim cases As Variant, spec As Variant, parts As Variant, rep As Long, i As Long, width As Long
-    Dim uniq As Long, n As Long, mode As String, tokens As Variant, values() As Variant
+    Dim uniq As Long, n As Long, mode As String, tokens As Variant, values() As Variant, repeats As Long
     Dim displays As clsSet, asset As clsColAsset, emptyMap As Object, failure As String
     On Error GoTo Failed
     AhoProbeParity
@@ -2669,6 +2679,11 @@ Private Sub HybridSearchGrid(ByVal policy As String)
         "47397|128|50|miss", "47397|128|8|broad", _
         "20000|32|6|selective", "20000|32|12|miss", "20000|96|12|broad", _
         "20000|96|30|selective", "20000|128|20|cluster", "20000|64|20|unicode")
+    repeats = 3
+    If policy = "product-fallback" Then
+        cases = Array("47397|15|5|selective", "20000|32|6|selective", "20000|64|20|unicode")
+        repeats = 9
+    End If
     For Each spec In cases
         parts = Split(CStr(spec), "|")
         uniq = CLng(parts(0)): width = CLng(parts(1)): n = CLng(parts(2)): mode = CStr(parts(3))
@@ -2695,7 +2710,7 @@ Private Sub HybridSearchGrid(ByVal policy As String)
                 Case Else: tokens(i) = Format$(i + 1, "000000")
             End Select
         Next i
-        For rep = 1 To 3
+        For rep = 1 To repeats
             HybridSearchCase asset, tokens, CStr(spec), rep, policy
         Next rep
     Next spec
@@ -2787,14 +2802,17 @@ Private Sub HybridSearchCase(ByVal asset As clsColAsset, ByRef tokens As Variant
         t = ApplyProbeClock()
         Select Case (rep + phase - 1) Mod 3
             Case 0
-                Set baseline = modMatch.Execute(tokens, asset, True)
+                Set baseline = NativePartialOutcome(asset, tokens)
                 baselineMs = (ApplyProbeClock() - t) * 1000#
             Case 1
                 keys = asset.Displays.KeysArray
                 Set aho = AhoOutcome(keys, tokens)
                 ahoMs = (ApplyProbeClock() - t) * 1000#
             Case 2
-                If policy = "length" Then
+                If policy = "product" Or policy = "product-fallback" Then
+                    Set hybrid = modMatch.Execute(tokens, asset, True)
+                    choice = "product"
+                ElseIf policy = "length" Then
                     Set hybrid = LengthHybridOutcome(asset, tokens, choice, chooseMs)
                 Else
                     Set hybrid = HybridOutcome(asset, tokens, choice, chooseMs, nativeSampleMs, ahoSampleMs, rep Mod 2 = 0)
@@ -2852,4 +2870,46 @@ Selected:
     Else
         Set LengthHybridOutcome = modMatch.Execute(tokens, asset, True)
     End If
+End Function
+
+' 변경 전 부분일치 기준. 제품 선택 로직을 호출하지 않는다.
+Private Function NativePartialOutcome(ByVal asset As clsColAsset, ByRef tokens As Variant) As Object
+    Dim result As Object, matched As New clsSet, corrections As Object, missing As New Collection
+    Dim keys As Variant, i As Long, t As String, arr As Variant
+    Set result = CreateObject("Scripting.Dictionary")
+    Set corrections = CreateObject("Scripting.Dictionary")
+    keys = asset.Displays.KeysArray
+    For i = LBound(tokens) To UBound(tokens)
+        t = CStr(tokens(i))
+        If Not NativePartialToken(t, asset, True, matched, corrections, keys) Then missing.Add t
+    Next i
+    arr = Array()
+    If missing.Count > 0 Then
+        ReDim arr(0 To missing.Count - 1)
+        For i = 1 To missing.Count
+            arr(i - 1) = missing(i)
+        Next i
+    End If
+    Set result("Matched") = matched
+    Set result("Corrections") = corrections
+    result("Missing") = arr
+    result("InputCount") = UBound(tokens) - LBound(tokens) + 1
+    result("MatchedRows") = -1&
+    Set NativePartialOutcome = result
+End Function
+
+' 기존 제품과 같은 인자 전달 및 배열 순회 비용을 유지한다.
+Private Function NativePartialToken(ByVal t As String, ByVal asset As clsColAsset, _
+                                    ByVal bPartial As Boolean, ByVal matched As clsSet, _
+                                    ByVal corrections As Object, ByRef keys As Variant) As Boolean
+    Dim hit As Boolean, k As Long
+    If bPartial Then
+        For k = LBound(keys) To UBound(keys)
+            If InStr(1, CStr(keys(k)), t, vbTextCompare) > 0 Then
+                matched.Add keys(k)
+                hit = True
+            End If
+        Next k
+    End If
+    NativePartialToken = hit
 End Function

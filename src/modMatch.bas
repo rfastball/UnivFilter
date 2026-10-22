@@ -32,7 +32,10 @@ Public Function Execute(ByVal vTokens As Variant, ByVal asset As clsColAsset, _
     If IsArray(vTokens) Then
         If bPartial Then
             ' 검색어마다 전체 키 배열을 복사하지 않고 실행 안에서 재사용한다.
-            If CountTokens(vTokens) > 0 Then keys = asset.Displays.KeysArray
+            If CountTokens(vTokens) > 0 Then
+                keys = asset.Displays.KeysArray
+                If TryPartialAho(keys, vTokens, matched, missing) Then GoTo Done
+            End If
         End If
         For i = LBound(vTokens) To UBound(vTokens)
             t = CStr(vTokens(i))
@@ -42,6 +45,7 @@ Public Function Execute(ByVal vTokens As Variant, ByVal asset As clsColAsset, _
         Next i
     End If
 
+Done:
     Set result("Matched") = matched
     Set result("Corrections") = corrections
     result("Missing") = ToStringArray(missing)
@@ -255,4 +259,138 @@ Private Function CountTokens(ByVal vTokens As Variant) As Long
         If CountTokens < 0 Then CountTokens = 0
         On Error GoTo 0
     End If
+End Function
+
+' shortcut: 합성 벤치의 보수적 기준. 실제 데이터에서 역전되면 기준만 재측정한다.
+Private Function TryPartialAho(ByRef keys As Variant, ByRef tokens As Variant, _
+                               ByVal matched As clsSet, ByVal missing As Collection) As Boolean
+    Dim n As Long, count As Long, i As Long, total As Double, threshold As Long, cap As Long
+    n = CountTokens(tokens)
+    If n < 10 Then Exit Function
+    count = UBound(keys) - LBound(keys) + 1
+    If count <= 1024 Then Exit Function
+    For i = 0 To 31
+        total = total + Len(CStr(keys(LBound(keys) + CLng(Fix(CDbl(i) * (count - 1) / 31)))))
+    Next i
+    If total <= 16 * 32 Then
+        threshold = 10
+    ElseIf total <= 64 * 32 Then
+        threshold = 20
+    Else
+        threshold = 50
+    End If
+    If n < threshold Then Exit Function
+    ' ASCII 대소문자 대응이 다른 로캘은 기존 텍스트 비교를 유지한다.
+    If StrComp(LCase$("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), "abcdefghijklmnopqrstuvwxyz", vbBinaryCompare) <> 0 Then Exit Function
+    For i = LBound(tokens) To UBound(tokens)
+        If Len(CStr(tokens(i))) = 0 Then Exit Function
+        If Not PartialAscii(CStr(tokens(i))) Then Exit Function
+        ' 전이표 용량을 제한하고 큰 검색어 집합은 기존 경로로 보낸다.
+        If Len(CStr(tokens(i))) > 8192 - cap Then Exit Function
+        cap = cap + Len(CStr(tokens(i)))
+    Next i
+    PartialAho keys, tokens, matched, missing, cap
+    TryPartialAho = True
+End Function
+
+Private Sub PartialAho(ByRef keys As Variant, ByRef tokens As Variant, _
+                       ByVal result As clsSet, ByVal missing As Collection, ByVal cap As Long)
+    Dim i As Long, j As Long, c As Long, s As Long, node As Long
+    Dim n As Long, text As String, asciiKey As Boolean
+    Dim goToState() As Long, fail() As Long, output() As Long, suffix() As Long
+    Dim nextToken() As Long, queue() As Long, terminal As Long, v As Long, f As Long
+    Dim head As Long, tail As Long, matched As Boolean, item As Long
+    Dim tokenHit() As Boolean
+    n = UBound(tokens) - LBound(tokens) + 1
+    ReDim tokenHit(LBound(tokens) To UBound(tokens))
+    ReDim goToState(0 To cap, 0 To 127)
+    ReDim fail(0 To cap)
+    ReDim output(0 To cap)
+    ReDim suffix(0 To cap)
+    ReDim nextToken(1 To n)
+    ReDim queue(0 To cap)
+    For i = LBound(tokens) To UBound(tokens)
+        text = LCase$(CStr(tokens(i)))
+        s = 0
+        For j = 1 To Len(text)
+            c = AscW(Mid$(text, j, 1))
+            If goToState(s, c) = 0 Then
+                node = node + 1
+                goToState(s, c) = node
+            End If
+            s = goToState(s, c)
+        Next j
+        item = i - LBound(tokens) + 1
+        nextToken(item) = output(s)
+        output(s) = item
+    Next i
+    For c = 0 To 127
+        If goToState(0, c) <> 0 Then
+            queue(tail) = goToState(0, c)
+            tail = tail + 1
+        End If
+    Next c
+    Do While head < tail
+        s = queue(head)
+        head = head + 1
+        For c = 0 To 127
+            v = goToState(s, c)
+            If v <> 0 Then
+                f = goToState(fail(s), c)
+                fail(v) = f
+                If output(f) <> 0 Then
+                    suffix(v) = f
+                Else
+                    suffix(v) = suffix(f)
+                End If
+                queue(tail) = v
+                tail = tail + 1
+            Else
+                goToState(s, c) = goToState(fail(s), c)
+            End If
+        Next c
+    Loop
+    For i = LBound(keys) To UBound(keys)
+        text = CStr(keys(i))
+        matched = False
+        asciiKey = PartialAscii(text)
+        If asciiKey Then
+            text = LCase$(text)
+            s = 0
+            For j = 1 To Len(text)
+                c = AscW(Mid$(text, j, 1))
+                s = goToState(s, c)
+                terminal = s
+                Do While terminal <> 0
+                    item = output(terminal)
+                    Do While item <> 0
+                        tokenHit(item + LBound(tokens) - 1) = True
+                        matched = True
+                        item = nextToken(item)
+                    Loop
+                    terminal = suffix(terminal)
+                Loop
+            Next j
+        Else
+            For j = LBound(tokens) To UBound(tokens)
+                If InStr(1, CStr(keys(i)), CStr(tokens(j)), vbTextCompare) > 0 Then
+                    tokenHit(j) = True
+                    matched = True
+                End If
+            Next j
+        End If
+        If matched Then result.Add keys(i)
+    Next i
+    For i = LBound(tokens) To UBound(tokens)
+        If Not tokenHit(i) Then missing.Add CStr(tokens(i))
+    Next i
+End Sub
+
+Private Function PartialAscii(ByVal text As String) As Boolean
+    Dim i As Long, c As Long
+    For i = 1 To Len(text)
+        c = AscW(Mid$(text, i, 1))
+        If c < 32 Or c > 126 Then Exit Function
+    Next i
+    PartialAscii = True
 End Function
