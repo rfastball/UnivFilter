@@ -2268,7 +2268,7 @@ Public Sub MeasurePartialStages()
             indexMs = (ApplyProbeClock() - t) * 1000#
             LogShim.LogEvent "partial_setup", Array("uniq", "rep", "buildMs", "indexMs"), _
                 Array(u, rep, buildMs, indexMs)
-            For Each mode In Array("selective", "miss", "broad")
+            For Each mode In Array("selective", "miss", "broad", "mixed")
                 For Each n In Array(1, 10, 50)
                     If mode <> "broad" Or n <= 10 Then
                         PartialStageCase a, area, CLng(u), rep, CStr(mode), CLng(n)
@@ -2298,6 +2298,13 @@ Private Sub PartialStageCase(ByVal a As clsColAsset, ByVal area As Range, ByVal 
             Case "selective": tokens(i) = Format$(i + 1, "000000")
             Case "miss": tokens(i) = "MISS" & CStr(i)
             Case "broad": tokens(i) = CStr(i)
+            Case "mixed"
+                Select Case i Mod 4
+                    Case 0: tokens(i) = "item"
+                    Case 1: tokens(i) = "MISS" & CStr(i)
+                    Case 2: tokens(i) = Format$(i + 1, "000000")
+                    Case 3: tokens(i) = "end"
+                End Select
         End Select
     Next i
     Dim t As Double, matchMs As Double, copyMs As Double, scanMs As Double, candidateMs As Double
@@ -2321,25 +2328,48 @@ Private Sub PartialStageCase(ByVal a As clsColAsset, ByVal area As Range, ByVal 
     Next i
     scanMs = (ApplyProbeClock() - t) * 1000#
 
-    ' 후보는 키 배열을 한번만 얻는다. 실제 매칭 집합과 누락 수를 대조한다.
+    ' 키와 검색어가 모두 적중했을 때만 비교를 생략한다.
+    Dim keyHit() As Boolean, tokenHit() As Boolean, comparisons As Long
+    Dim oracleMissing As Variant
     t = ApplyProbeClock()
     Set hitSet = New clsSet
     keys = a.Displays.KeysArray
+    ReDim keyHit(LBound(keys) To UBound(keys))
+    ReDim tokenHit(0 To n - 1)
     For i = 0 To n - 1
         found = False
         token = CStr(tokens(i))
         For k = LBound(keys) To UBound(keys)
-            If InStr(1, CStr(keys(k)), token, vbTextCompare) > 0 Then
-                hitSet.Add keys(k)
-                found = True
+            If Not (keyHit(k) And found) Then
+                comparisons = comparisons + 1
+                If InStr(1, CStr(keys(k)), token, vbTextCompare) > 0 Then
+                    If Not keyHit(k) Then
+                        hitSet.Add keys(k)
+                        keyHit(k) = True
+                    End If
+                    found = True
+                End If
             End If
         Next k
+        tokenHit(i) = found
         If Not found Then missing = missing + 1
     Next i
     candidateMs = (ApplyProbeClock() - t) * 1000#
     LogShim.AssertEq "partial_candidate_count", r("Matched").Count, hitSet.Count
     LogShim.AssertEq "partial_candidate_keys", CLng(0), r("Matched").Difference(hitSet).Count
-    LogShim.AssertEq "partial_candidate_missing", UBound(r("Missing")) - LBound(r("Missing")) + 1, missing
+    oracleMissing = r("Missing")
+    LogShim.AssertEq "partial_candidate_missing", UBound(oracleMissing) - LBound(oracleMissing) + 1, missing
+    missing = 0
+    For i = 0 To n - 1
+        If Not tokenHit(i) Then
+            If missing <= UBound(oracleMissing) Then
+                LogShim.AssertEq "partial_candidate_missing_token", CStr(oracleMissing(missing)), CStr(tokens(i))
+            End If
+            missing = missing + 1
+        End If
+    Next i
+    LogShim.LogEvent "partial_skip", Array("uniq", "rep", "mode", "tokens", "baselineMs", "skipMs", "comparisons", "fullComparisons"), _
+        Array(uniq, rep, mode, n, matchMs, candidateMs, comparisons, CLng(uniq) * n)
 
     modApply.ResetFilters area
     t = ApplyProbeClock()
