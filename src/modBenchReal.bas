@@ -2645,3 +2645,211 @@ Private Sub AhoCrossoverCase(ByVal asset As clsColAsset, ByRef tokens As Variant
         Array("uniq", "length", "mode", "tokens", "rep", "baselineFirst", "baselineMs", "ahoMs", "buildMs", "scanMs"), _
         Array(uniq, width, mode, UBound(tokens) + 1, rep, baselineFirst, baselineMs, ahoMs, buildMs, scanMs)
 End Sub
+
+' @desc 표본 계측으로 검색 경로를 고르는 혼합 후보를 검증함
+Public Sub MeasureHybridSearch()
+    HybridSearchGrid "sample"
+End Sub
+
+' @desc 길이와 검색어 수를 쓰는 저비용 혼합 규칙을 검증함
+Public Sub MeasureHybridStaticSearch()
+    HybridSearchGrid "length"
+End Sub
+
+Private Sub HybridSearchGrid(ByVal policy As String)
+    Dim cases As Variant, spec As Variant, parts As Variant, rep As Long, i As Long, width As Long
+    Dim uniq As Long, n As Long, mode As String, tokens As Variant, values() As Variant
+    Dim displays As clsSet, asset As clsColAsset, emptyMap As Object, failure As String
+    On Error GoTo Failed
+    AhoProbeParity
+    cases = Array("225|15|1|selective", "225|128|50|miss", _
+        "47397|15|1|selective", "47397|15|2|miss", "47397|15|5|selective", _
+        "47397|15|10|selective", "47397|15|50|miss", "47397|15|3|broad", _
+        "47397|64|10|miss", "47397|64|20|selective", "47397|128|20|selective", _
+        "47397|128|50|miss", "47397|128|8|broad", _
+        "20000|32|6|selective", "20000|32|12|miss", "20000|96|12|broad", _
+        "20000|96|30|selective", "20000|128|20|cluster", "20000|64|20|unicode")
+    For Each spec In cases
+        parts = Split(CStr(spec), "|")
+        uniq = CLng(parts(0)): width = CLng(parts(1)): n = CLng(parts(2)): mode = CStr(parts(3))
+        ReDim values(0 To uniq - 1)
+        For i = 0 To uniq - 1
+            If mode = "cluster" And i < uniq \ 2 Then
+                values(i) = "ITEM-" & Format$(i + 1, "000000") & "-END"
+            Else
+                values(i) = "ITEM-" & String$(width - 15, "x") & Format$(i + 1, "000000") & "-END"
+            End If
+            If mode = "unicode" Then values(i) = "한글" & values(i)
+        Next i
+        Set displays = New clsSet
+        displays.LoadFromArray values
+        Set emptyMap = CreateObject("Scripting.Dictionary")
+        Set asset = New clsColAsset
+        asset.Init displays, emptyMap, emptyMap, 0, uniq, "혼합 실험", Nothing
+        ReDim tokens(0 To n - 1)
+        For i = 0 To n - 1
+            Select Case mode
+                Case "miss": tokens(i) = "MISS" & Format$(i, "00")
+                Case "broad": tokens(i) = CStr(i)
+                Case "unicode": tokens(i) = "한글" & CStr(i)
+                Case Else: tokens(i) = Format$(i + 1, "000000")
+            End Select
+        Next i
+        For rep = 1 To 3
+            HybridSearchCase asset, tokens, CStr(spec), rep, policy
+        Next rep
+    Next spec
+    GoTo Done
+Failed:
+    failure = CStr(Err.Number) & ": " & Err.Description
+Done:
+    LogShim.LogEvent "hybrid_done", Array("ok", "error"), Array(failure = "", failure)
+End Sub
+
+' 후보도 현행과 같은 결과 구조를 만들어 반환 비용을 포함한다.
+Private Function AhoOutcome(ByRef keys As Variant, ByRef tokens As Variant) As Object
+    Dim hits() As Boolean, buildMs As Double, scanMs As Double, fallback As Long
+    Dim matched As clsSet, result As Object, corrections As Object, missing As Collection
+    Dim arr As Variant, i As Long
+    Set result = CreateObject("Scripting.Dictionary")
+    Set corrections = CreateObject("Scripting.Dictionary")
+    Set missing = New Collection
+    Set matched = AhoProbe(keys, tokens, hits, buildMs, scanMs, fallback)
+    For i = LBound(tokens) To UBound(tokens)
+        If Not hits(i) Then missing.Add CStr(tokens(i))
+    Next i
+    arr = Array()
+    If missing.Count > 0 Then
+        ReDim arr(0 To missing.Count - 1)
+        For i = 1 To missing.Count
+            arr(i - 1) = missing(i)
+        Next i
+    End If
+    Set result("Matched") = matched
+    Set result("Corrections") = corrections
+    result("Missing") = arr
+    result("InputCount") = UBound(tokens) - LBound(tokens) + 1
+    result("MatchedRows") = -1&
+    Set AhoOutcome = result
+End Function
+
+Private Function HybridOutcome(ByVal asset As clsColAsset, ByRef tokens As Variant, _
+                               ByRef choice As String, ByRef chooseMs As Double, _
+                               ByRef nativeSampleMs As Double, ByRef ahoSampleMs As Double, _
+                               ByVal reverseOrder As Boolean) As Object
+    Const SAMPLE_SIZE As Long = 1024
+    Dim t As Double, begin As Double, keys As Variant, sample As Variant, i As Long, phase As Long
+    Dim displays As clsSet, sampleAsset As clsColAsset, emptyMap As Object, ignored As Object
+    begin = ApplyProbeClock()
+    choice = "instr"
+    If UBound(tokens) - LBound(tokens) < 1 Then GoTo Selected
+    If asset.Displays.Count <= SAMPLE_SIZE Then GoTo Selected
+    For i = LBound(tokens) To UBound(tokens)
+        If Len(CStr(tokens(i))) = 0 Then GoTo Selected
+        If Not AhoAscii(CStr(tokens(i))) Then GoTo Selected
+    Next i
+    keys = asset.Displays.KeysArray
+    ReDim sample(0 To SAMPLE_SIZE - 1)
+    For i = 0 To SAMPLE_SIZE - 1
+        sample(i) = keys(LBound(keys) + CLng(Fix(CDbl(i) * (UBound(keys) - LBound(keys)) / (SAMPLE_SIZE - 1))))
+    Next i
+    Set displays = New clsSet
+    displays.LoadFromArray sample
+    Set emptyMap = CreateObject("Scripting.Dictionary")
+    Set sampleAsset = New clsColAsset
+    sampleAsset.Init displays, emptyMap, emptyMap, 0, SAMPLE_SIZE, "표본", Nothing
+    For phase = 0 To 1
+        t = ApplyProbeClock()
+        If (phase = 0) = reverseOrder Then
+            Set ignored = modMatch.Execute(tokens, sampleAsset, True)
+            nativeSampleMs = (ApplyProbeClock() - t) * 1000#
+        Else
+            Set ignored = AhoOutcome(sample, tokens)
+            ahoSampleMs = (ApplyProbeClock() - t) * 1000#
+        End If
+    Next phase
+    ' 표본 차이가 작으면 현행을 유지한다. 이 여유율도 실험 대상이다.
+    If ahoSampleMs < nativeSampleMs * 0.8 Then choice = "aho"
+Selected:
+    chooseMs = (ApplyProbeClock() - begin) * 1000#
+    If choice = "aho" Then
+        Set HybridOutcome = AhoOutcome(keys, tokens)
+    Else
+        Set HybridOutcome = modMatch.Execute(tokens, asset, True)
+    End If
+End Function
+
+Private Sub HybridSearchCase(ByVal asset As clsColAsset, ByRef tokens As Variant, ByVal tag As String, ByVal rep As Long, ByVal policy As String)
+    Dim baseline As Object, aho As Object, hybrid As Object, keys As Variant, t As Double
+    Dim baselineMs As Double, ahoMs As Double, hybridMs As Double, chooseMs As Double
+    Dim nativeSampleMs As Double, ahoSampleMs As Double, choice As String, phase As Long
+    For phase = 0 To 2
+        t = ApplyProbeClock()
+        Select Case (rep + phase - 1) Mod 3
+            Case 0
+                Set baseline = modMatch.Execute(tokens, asset, True)
+                baselineMs = (ApplyProbeClock() - t) * 1000#
+            Case 1
+                keys = asset.Displays.KeysArray
+                Set aho = AhoOutcome(keys, tokens)
+                ahoMs = (ApplyProbeClock() - t) * 1000#
+            Case 2
+                If policy = "length" Then
+                    Set hybrid = LengthHybridOutcome(asset, tokens, choice, chooseMs)
+                Else
+                    Set hybrid = HybridOutcome(asset, tokens, choice, chooseMs, nativeSampleMs, ahoSampleMs, rep Mod 2 = 0)
+                End If
+                hybridMs = (ApplyProbeClock() - t) * 1000#
+        End Select
+    Next phase
+    AssertHybridOutcome baseline, aho
+    AssertHybridOutcome baseline, hybrid
+    LogShim.LogEvent "hybrid_case", _
+        Array("case", "rep", "baselineMs", "ahoMs", "hybridMs", "choice", "chooseMs", "nativeSampleMs", "ahoSampleMs", "policy"), _
+        Array(tag, rep, baselineMs, ahoMs, hybridMs, choice, chooseMs, nativeSampleMs, ahoSampleMs, policy)
+End Sub
+
+Private Sub AssertHybridOutcome(ByVal expected As Object, ByVal actual As Object)
+    LogShim.AssertEq "hybrid_count", expected("Matched").Count, actual("Matched").Count
+    LogShim.AssertEq "hybrid_keys", CLng(0), expected("Matched").Difference(actual("Matched")).Count
+    LogShim.AssertEq "hybrid_missing", Join(expected("Missing"), vbNullChar), Join(actual("Missing"), vbNullChar)
+    LogShim.AssertEq "hybrid_input", expected("InputCount"), actual("InputCount")
+    LogShim.AssertEq "hybrid_rows", expected("MatchedRows"), actual("MatchedRows")
+    LogShim.AssertEq "hybrid_corrections", expected("Corrections").Count, actual("Corrections").Count
+End Sub
+
+' 기존 측정으로 정한 보수적 실험 규칙. 제품용 확정 기준이 아니다.
+Private Function LengthHybridOutcome(ByVal asset As clsColAsset, ByRef tokens As Variant, _
+                                     ByRef choice As String, ByRef chooseMs As Double) As Object
+    Dim begin As Double, n As Long, keys As Variant, i As Long, totalLength As Double
+    Dim avgLength As Double, threshold As Long
+    begin = ApplyProbeClock()
+    choice = "instr"
+    n = UBound(tokens) - LBound(tokens) + 1
+    If n <= 5 Then GoTo Selected
+    If asset.Displays.Count <= 1024 Then GoTo Selected
+    For i = LBound(tokens) To UBound(tokens)
+        If Len(CStr(tokens(i))) = 0 Then GoTo Selected
+        If Not AhoAscii(CStr(tokens(i))) Then GoTo Selected
+    Next i
+    keys = asset.Displays.KeysArray
+    For i = 0 To 31
+        totalLength = totalLength + Len(CStr(keys(LBound(keys) + CLng(Fix(CDbl(i) * (UBound(keys) - LBound(keys)) / 31)))))
+    Next i
+    avgLength = totalLength / 32
+    If avgLength <= 16 Then
+        threshold = 10
+    ElseIf avgLength <= 64 Then
+        threshold = 20
+    Else
+        threshold = 50
+    End If
+    If n >= threshold Then choice = "aho"
+Selected:
+    chooseMs = (ApplyProbeClock() - begin) * 1000#
+    If choice = "aho" Then
+        Set LengthHybridOutcome = AhoOutcome(keys, tokens)
+    Else
+        Set LengthHybridOutcome = modMatch.Execute(tokens, asset, True)
+    End If
+End Function
