@@ -28,11 +28,15 @@ Public Function Execute(ByVal vTokens As Variant, ByVal asset As clsColAsset, _
     Set corrections = CreateObject("Scripting.Dictionary")
     Dim missing As New Collection
 
-    Dim i As Long, t As String
+    Dim i As Long, t As String, keys As Variant
     If IsArray(vTokens) Then
+        If bPartial Then
+            ' 검색어마다 전체 키 배열을 복사하지 않고 실행 안에서 재사용한다.
+            If CountTokens(vTokens) > 0 Then keys = asset.Displays.KeysArray
+        End If
         For i = LBound(vTokens) To UBound(vTokens)
             t = CStr(vTokens(i))
-            If Not MatchToken(t, asset, bPartial, matched, corrections) Then
+            If Not MatchToken(t, asset, bPartial, matched, corrections, keys) Then
                 missing.Add t
             End If
         Next i
@@ -185,13 +189,12 @@ End Function
 ' 토큰 1개를 표시 레인 -> 값 레인 순으로 매칭한다. 성공 시 True.
 Private Function MatchToken(ByVal t As String, ByVal asset As clsColAsset, _
                             ByVal bPartial As Boolean, ByVal matched As clsSet, _
-                            ByVal corrections As Object) As Boolean
+                            ByVal corrections As Object, ByRef keys As Variant) As Boolean
     Dim hit As Boolean
 
     If bPartial Then
         ' 부분일치: 표시 키 전수 스캔 (적용은 여전히 정확한 키 배열)
-        Dim keys As Variant, k As Long
-        keys = asset.Displays.KeysArray
+        Dim k As Long
         For k = LBound(keys) To UBound(keys)
             If InStr(1, CStr(keys(k)), t, vbTextCompare) > 0 Then
                 matched.Add keys(k)
