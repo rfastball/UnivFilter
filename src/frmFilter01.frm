@@ -141,10 +141,9 @@ Private Sub btnApply_Click()
         Exit Sub
     End If
 
-    ' 3. UI 피드백 (Wait State)
+    ' 3. UI 피드백: 전역 커서는 강제 중단 시 복원되지 않으므로 변경하지 않는다.
     Dim oldCaption As String: oldCaption = lblInfo.Caption
     lblInfo.Caption = "처리 중..."
-    Application.Cursor = xlWait
     Me.Repaint
 
     ' 4. 파이프라인 실행 (위임)
@@ -158,7 +157,6 @@ Private Sub btnApply_Click()
                         pIsStackMode, _
                         pIsPartialMatch)
 
-    Application.Cursor = xlDefault
     lblInfo.Caption = oldCaption
 
     ' 5. 결과 처리: 팝업은 실행 가능 정보만, 자동보정은 상태바 한 줄 (퀵 모드와 동일)
@@ -193,7 +191,6 @@ Private Sub btnApply_Click()
     Exit Sub
 
 ErrorHandler:
-    Application.Cursor = xlDefault
     MsgBox "Critical Error: " & Err.Description, vbCritical
 End Sub
 
