@@ -82,6 +82,14 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 - 타입 잠금(HYBRID/ROUNDED/DATE)은 **제거됨** — 표시 키 매칭에서는 어떤 열이든 완전일치가 안전하다(실측 P5/P6). 부활시키지 말 것.
 - 단축키/메뉴 바인딩: `현재_통합_문서.Workbook_Open`(OnKey + SetupContextMenu), 해제는 Workbook_BeforeClose.
 
+### 실행 중단과 설정 복원
+
+RunFilter(폼/퀵 공용)는 EnableCancelKey를 xlErrorHandler로 바꾸어 Esc/Ctrl+Break를
+오류 18로 받고, 실패 결과로 반환한다. 오류 처리/복원 동안 xlDisabled로 재중단을 막는다.
+Utilities가 원래 계산/화면 갱신/이벤트를 복원한 뒤 호출자의 중단 설정을 돌려준다.
+커서는 변경하지 않는다. 회귀 소유자는 Test_PL_RestoresSettings이며 실제 키 및 재중단
+검증 기록은 [중단 복원 검증](docs/tasks/2026-10-22_interrupt_restore.md)에 있다.
+
 ### 모듈 지도
 
 | 모듈 | 역할 |

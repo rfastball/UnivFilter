@@ -2,7 +2,7 @@ Attribute VB_Name = "Test_Pipeline"
 ' SPDX-License-Identifier: MIT
 ' Copyright (c) 2026 JM - see LICENSE
 ' @desc modFilterRun 파이프라인 e2e 계약 테스트 담당
-' @depends modFilterRun, modCache, modApply, modUnivFilter, modReport, frmFilter01, clsSet, LogShim
+' @depends modFilterRun, modCache, modApply, modUnivFilter, modReport, frmFilter01, clsSet, Utilities, LogShim
 Option Explicit
 
 ' 2026-07 재설계 스펙: 폼/퀵 공용 진입점의 결과 계약을 실기 시트로 고정한다.
@@ -236,6 +236,54 @@ Cleanup:
     Exit Sub
 Fail:
     LogShim.AssertEq "pl_button_restore_error", "", Err.Description
+    Resume Cleanup
+End Sub
+
+' @desc 정상/실패 반환 시 원래 전역 설정과 중단 정책 보존을 검증함
+Public Sub Test_PL_RestoresSettings()
+    Dim ws As Worksheet, calc As XlCalculation, events As Boolean, screen As Boolean
+    Dim cancel As XlEnableCancelKey, cursor As XlMousePointer, mode As Long, invalid As Long
+    Dim r As Object, expectedCalc As XlCalculation, expectedEnabled As Boolean
+    Set ws = PrepSheet()
+    calc = Application.Calculation: events = Application.EnableEvents
+    screen = Application.ScreenUpdating: cancel = Application.EnableCancelKey
+    cursor = Application.Cursor
+    On Error GoTo Fail
+    PutNumberCol ws
+    For mode = 0 To 1
+        expectedEnabled = (mode = 0)
+        If mode = 0 Then expectedCalc = xlCalculationAutomatic Else expectedCalc = xlCalculationManual
+        For invalid = 0 To 1
+            Application.Calculation = expectedCalc
+            Application.EnableEvents = expectedEnabled
+            Application.ScreenUpdating = expectedEnabled
+            Application.EnableCancelKey = xlDisabled
+            Application.Cursor = xlNorthwestArrow
+            If invalid = 0 Then
+                Set r = modFilterRun.RunFilter(Body(ws), Area(ws), 1, "1,000", False, False, False)
+            Else
+                Set r = modFilterRun.RunFilter(Nothing, Area(ws), 1, "1,000", False, False, False)
+            End If
+            LogShim.AssertEq "pl_restore_result", (invalid = 0), r("Ok")
+            LogShim.AssertEq "pl_restore_calc", CLng(expectedCalc), CLng(Application.Calculation)
+            LogShim.AssertEq "pl_restore_events", expectedEnabled, Application.EnableEvents
+            LogShim.AssertEq "pl_restore_screen", expectedEnabled, Application.ScreenUpdating
+            LogShim.AssertEq "pl_restore_cancel", CLng(xlDisabled), CLng(Application.EnableCancelKey)
+            LogShim.AssertEq "pl_restore_cursor", CLng(xlNorthwestArrow), CLng(Application.Cursor)
+        Next invalid
+    Next mode
+Cleanup:
+    Application.EnableCancelKey = xlDisabled
+    Utilities.OptimizedMode False
+    Application.Calculation = calc
+    Application.EnableEvents = events
+    Application.ScreenUpdating = screen
+    Application.Cursor = cursor
+    Application.EnableCancelKey = cancel
+    DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "pl_restore_error", "", Err.Description
     Resume Cleanup
 End Sub
 

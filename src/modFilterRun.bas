@@ -23,7 +23,10 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
     result("SelfCheckNote") = ""
     result("ScanNote") = ""
 
+    Dim originalCancelKey As XlEnableCancelKey
+    originalCancelKey = Application.EnableCancelKey
     On Error GoTo Fail
+    Application.EnableCancelKey = xlErrorHandler
     Utilities.OptimizedMode True
 
     ' 1. 자산 취득 (캐시가 세대 검증과 재빌드를 내부에서 처리)
@@ -134,12 +137,27 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
     result("Ok") = True
 
 Cleanup:
+    ' 자동 계산 복원은 재계산을 유발할 수 있으므로 복구 전체에서 재중단을 막는다.
+    Application.EnableCancelKey = xlDisabled
+    On Error Resume Next
     Utilities.OptimizedMode False
+    If Err.Number <> 0 Then
+        result("Ok") = False
+        result("ErrMsg") = "설정 복원 오류 " & Err.Number & ": " & Err.Description
+    End If
+    On Error GoTo 0
     Set RunFilter = result
+    Application.EnableCancelKey = originalCancelKey
     Exit Function
 
 Fail:
-    result("ErrMsg") = "오류 " & Err.Number & ": " & Err.Description
+    Application.EnableCancelKey = xlDisabled
+    result("Ok") = False
+    If Err.Number = 18 Then
+        result("ErrMsg") = "필터 실행을 중단했습니다."
+    Else
+        result("ErrMsg") = "오류 " & Err.Number & ": " & Err.Description
+    End If
     Log "RunFilter: " & result("ErrMsg"), lvlError
     Resume Cleanup
 End Function

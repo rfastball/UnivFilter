@@ -23,6 +23,8 @@ Public Sub OptimizedMode(ByVal enable As Boolean)
         originalScreenUpdating = Application.ScreenUpdating
         originalEnableEvents = Application.EnableEvents
 
+        ' 설정 변경 도중 중단되어도 이미 저장한 원래 값으로 복원한다.
+        isOptimized = True
         Application.Calculation = xlCalculationManual
         Application.ScreenUpdating = False
         Application.EnableEvents = False

@@ -2913,6 +2913,29 @@ Private Function NativePartialToken(ByVal t As String, ByVal asset As clsColAsse
     End If
     NativePartialToken = hit
 End Function
+' @desc 복원 재계산 중 실제 키 입력 시간을 확보하는 수동 프로브 함수
+Public Function InterruptRestoreWait() As Double
+    Application.Volatile
+    If Application.EnableCancelKey = xlDisabled Then
+        LogShim.LogEvent "interrupt_restore_enter", _
+            Array("cancelKey", "events", "screen"), _
+            Array(Application.EnableCancelKey, Application.EnableEvents, Application.ScreenUpdating)
+        Dim started As Double, elapsed As Double
+        started = Timer
+        Do
+            elapsed = Timer - started
+            If elapsed < 0 Then elapsed = elapsed + 86400#
+        Loop While elapsed < 15#
+        LogShim.LogEvent "interrupt_restore_exit", Array("cancelKey"), Array(Application.EnableCancelKey)
+    End If
+    InterruptRestoreWait = 1
+End Function
+
+' @desc 재중단 검증용으로 느린 재계산 함수를 기존 합성 시트에 추가함
+Public Sub ArmInterruptRestoreProbe()
+    ThisWorkbook.Worksheets("UF_InterruptProbe").Range("C1").Formula = "=InterruptRestoreWait()"
+End Sub
+
 ' @desc 실제 중단 키 검증용 합성 열과 필터 폼을 준비함
 Public Sub PrepareInterruptProbe()
     Dim ws As Worksheet, data() As Variant, i As Long, tokens As String
@@ -2980,6 +3003,7 @@ Public Sub CleanupInterruptProbe()
     For Each frm In VBA.UserForms
         Unload frm
     Next frm
+    ws.Range("C1").ClearContents
     Utilities.OptimizedMode False
     Application.Cursor = CLng(ws.Range("B1").Value2)
     Application.Calculation = CLng(ws.Range("B3").Value2)
