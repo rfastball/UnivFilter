@@ -2239,6 +2239,7 @@ End Function
 
 ' @desc 부분일치의 자산/인덱스/매칭/적용 비용과 배열 재사용 후보를 측정함
 Public Sub MeasurePartialStages()
+    AhoProbeParity
     Dim wb As Workbook, ws As Worksheet, body As Range, area As Range
     Dim vals() As Variant, u As Variant, rep As Long, i As Long, n As Variant, mode As Variant
     Dim a As clsColAsset, displays As clsSet, t As Double, buildMs As Double, indexMs As Double
@@ -2371,6 +2372,21 @@ Private Sub PartialStageCase(ByVal a As clsColAsset, ByVal area As Range, ByVal 
     LogShim.LogEvent "partial_skip", Array("uniq", "rep", "mode", "tokens", "baselineMs", "skipMs", "comparisons", "fullComparisons"), _
         Array(uniq, rep, mode, n, matchMs, candidateMs, comparisons, CLng(uniq) * n)
 
+    Dim ahoSet As clsSet, ahoHit() As Boolean, ahoBuild As Double, ahoScan As Double, ahoFallback As Long
+    Dim ahoTokens As Variant
+    ahoTokens = tokens
+    t = ApplyProbeClock()
+    Set ahoSet = AhoProbe(keys, ahoTokens, ahoHit, ahoBuild, ahoScan, ahoFallback)
+    Dim ahoTotal As Double
+    ahoTotal = (ApplyProbeClock() - t) * 1000#
+    LogShim.AssertEq "aho_count", r("Matched").Count, ahoSet.Count
+    LogShim.AssertEq "aho_keys", CLng(0), r("Matched").Difference(ahoSet).Count
+    For i = 0 To n - 1
+        LogShim.AssertEq "aho_token", tokenHit(i), ahoHit(i)
+    Next i
+    LogShim.LogEvent "partial_aho", Array("uniq", "rep", "mode", "tokens", "baselineMs", "ahoMs", "buildMs", "scanMs", "fallbackKeys"), _
+        Array(uniq, rep, mode, n, matchMs, ahoTotal, ahoBuild, ahoScan, ahoFallback)
+
     modApply.ResetFilters area
     t = ApplyProbeClock()
     If hitSet.Count > 0 Then
@@ -2392,4 +2408,153 @@ Private Sub PartialStageCase(ByVal a As clsColAsset, ByVal area As Range, ByVal 
               "scanMs", "candidateMs", "applyMs", "expectedMs", "countMs"), _
         Array(uniq, rep, mode, n, hitSet.Count, hits, matchMs, copyMs, scanMs, candidateMs, _
               applyMs, expectedMs, countMs)
+End Sub
+
+' ASCII 전용 실험. 비ASCII/빈 토큰은 기존 비교로 폴백한다.
+Private Function AhoProbe(ByRef keys As Variant, ByRef tokens As Variant, _
+                          ByRef tokenHit() As Boolean, ByRef buildMs As Double, _
+                          ByRef scanMs As Double, ByRef fallbackKeys As Long) As clsSet
+    Dim t As Double, cap As Long, i As Long, j As Long, c As Long, s As Long, node As Long
+    Dim n As Long, text As String, asciiTokens As Boolean, asciiKey As Boolean
+    Dim goToState() As Long, fail() As Long, output() As Long, suffix() As Long
+    Dim nextToken() As Long, queue() As Long, terminal As Long, v As Long, f As Long
+    Dim head As Long, tail As Long, matched As Boolean, item As Long
+    Dim result As New clsSet
+    t = ApplyProbeClock()
+    n = UBound(tokens) - LBound(tokens) + 1
+    ReDim tokenHit(LBound(tokens) To UBound(tokens))
+    asciiTokens = True
+    For i = LBound(tokens) To UBound(tokens)
+        text = CStr(tokens(i))
+        If Len(text) = 0 Then asciiTokens = False
+        If Not AhoAscii(text) Then asciiTokens = False
+        cap = cap + Len(text)
+    Next i
+    If asciiTokens Then
+        ReDim goToState(0 To cap, 0 To 127)
+        ReDim fail(0 To cap)
+        ReDim output(0 To cap)
+        ReDim suffix(0 To cap)
+        ReDim nextToken(1 To n)
+        ReDim queue(0 To cap)
+        For i = LBound(tokens) To UBound(tokens)
+            text = CStr(tokens(i))
+            s = 0
+            For j = 1 To Len(text)
+                c = AscW(Mid$(text, j, 1))
+                If c >= 65 And c <= 90 Then c = c + 32
+                If goToState(s, c) = 0 Then
+                    node = node + 1
+                    goToState(s, c) = node
+                End If
+                s = goToState(s, c)
+            Next j
+            item = i - LBound(tokens) + 1
+            nextToken(item) = output(s)
+            output(s) = item
+        Next i
+        For c = 0 To 127
+            If goToState(0, c) <> 0 Then
+                queue(tail) = goToState(0, c)
+                tail = tail + 1
+            End If
+        Next c
+        Do While head < tail
+            s = queue(head)
+            head = head + 1
+            For c = 0 To 127
+                v = goToState(s, c)
+                If v <> 0 Then
+                    f = goToState(fail(s), c)
+                    fail(v) = f
+                    If output(f) <> 0 Then
+                        suffix(v) = f
+                    Else
+                        suffix(v) = suffix(f)
+                    End If
+                    queue(tail) = v
+                    tail = tail + 1
+                Else
+                    goToState(s, c) = goToState(fail(s), c)
+                End If
+            Next c
+        Loop
+    End If
+    buildMs = (ApplyProbeClock() - t) * 1000#
+    t = ApplyProbeClock()
+    For i = LBound(keys) To UBound(keys)
+        text = CStr(keys(i))
+        matched = False
+        asciiKey = False
+        If asciiTokens Then asciiKey = AhoAscii(text)
+        If asciiKey Then
+            s = 0
+            For j = 1 To Len(text)
+                c = AscW(Mid$(text, j, 1))
+                If c >= 65 And c <= 90 Then c = c + 32
+                s = goToState(s, c)
+                terminal = s
+                Do While terminal <> 0
+                    item = output(terminal)
+                    Do While item <> 0
+                        tokenHit(item + LBound(tokens) - 1) = True
+                        matched = True
+                        item = nextToken(item)
+                    Loop
+                    terminal = suffix(terminal)
+                Loop
+            Next j
+        Else
+            fallbackKeys = fallbackKeys + 1
+            For j = LBound(tokens) To UBound(tokens)
+                If InStr(1, text, CStr(tokens(j)), vbTextCompare) > 0 Then
+                    tokenHit(j) = True
+                    matched = True
+                End If
+            Next j
+        End If
+        If matched Then result.Add keys(i)
+    Next i
+    scanMs = (ApplyProbeClock() - t) * 1000#
+    Set AhoProbe = result
+End Function
+
+Private Function AhoAscii(ByVal text As String) As Boolean
+    Dim i As Long, c As Long
+    For i = 1 To Len(text)
+        c = AscW(Mid$(text, i, 1))
+        If c < 0 Or c > 127 Then Exit Function
+    Next i
+    AhoAscii = True
+End Function
+
+Private Sub AhoProbeParity()
+    Dim keys As Variant, tokens As Variant, cases As Variant, tc As Variant
+    Dim hit() As Boolean, expectedHit() As Boolean, actual As clsSet, expected As clsSet
+    Dim i As Long, j As Long, buildMs As Double, scanMs As Double, fallback As Long
+    keys = Array("ushers", "SHE", "aaaa", "ababa", "ABC", "", "한글ABC", ChrW(&HFF21) & "BC")
+    cases = Array(Array("he", "she", "hers", "his", "a", "aa", "aba", "ABC", "abc", "MISS"), _
+                  Array("한글", "ABC", "없는값"), Array("", "ABC"), Array())
+    For Each tc In cases
+        tokens = tc
+        Set expected = New clsSet
+        If UBound(tokens) >= LBound(tokens) Then
+            ReDim expectedHit(LBound(tokens) To UBound(tokens))
+            For i = LBound(keys) To UBound(keys)
+                For j = LBound(tokens) To UBound(tokens)
+                    If InStr(1, CStr(keys(i)), CStr(tokens(j)), vbTextCompare) > 0 Then
+                        expected.Add keys(i)
+                        expectedHit(j) = True
+                    End If
+                Next j
+            Next i
+            fallback = 0
+            Set actual = AhoProbe(keys, tokens, hit, buildMs, scanMs, fallback)
+            LogShim.AssertEq "aho_parity_count", expected.Count, actual.Count
+            LogShim.AssertEq "aho_parity_keys", CLng(0), expected.Difference(actual).Count
+            For j = LBound(tokens) To UBound(tokens)
+                LogShim.AssertEq "aho_parity_token", expectedHit(j), hit(j)
+            Next j
+        End If
+    Next tc
 End Sub
