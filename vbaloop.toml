@@ -9,7 +9,7 @@ visible = true
 root = "src"
 
 [dist]
-version = "2.8.3"
+version = "2.8.4"
 exclude = ["Test_*", "modBenchReal", "modPerfProbe"]
 
 [vbaloop]
