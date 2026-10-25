@@ -39,7 +39,19 @@ Public Sub Test_PL_CorrectionAndMissing()
     On Error GoTo Fail
     modUnivFilter.G_ValueCorrection = False
     Set frm = New frmFilter01
-    LogShim.AssertEq "pl_corr_ui_default", False, CBool(frm.Controls("chkValueCorrection").Value)
+    Dim panel As MSForms.Frame, box As MSForms.Label, compactHeight As Single, inputTop As Single
+    Set panel = frm.Controls("fraOptions")
+    Set box = panel.Controls("lblCorrectionSwitch")
+    LogShim.AssertEq "pl_corr_ui_default", "", box.Caption
+    LogShim.AssertEq "pl_corr_options_collapsed", False, panel.Visible
+    compactHeight = frm.Height
+    inputTop = frm.txtFilterValues.Top
+    frm.ToggleOptions
+    LogShim.AssertEq "pl_corr_options_expanded", True, panel.Visible
+    LogShim.AssertEq "pl_corr_options_room", True, frm.lblApply.Top >= panel.Top + panel.Height
+    frm.ToggleOptions
+    LogShim.AssertEq "pl_corr_options_height_restored", compactHeight, frm.Height
+    LogShim.AssertEq "pl_corr_input_stable", inputTop, frm.txtFilterValues.Top
     ' 기본 OFF: 퀵 필터는 무적용, 폼 파이프라인은 누락으로 판정한다.
     Dim offResult As Object
     Set offResult = modFilterRun.RunQuickFilter(Body(ws), Area(ws), 1, "1000")
@@ -47,7 +59,10 @@ Public Sub Test_PL_CorrectionAndMissing()
     Set offResult = modFilterRun.RunFilter(Body(ws), Area(ws), 1, "1000", False, False, False)
     LogShim.AssertEq "pl_corr_form_off", CLng(0), offResult("MatchedCount")
     LogShim.AssertEq "pl_corr_off_report", "", CStr(offResult("CorrectionInline"))
-    frm.Controls("chkValueCorrection").Value = True
+    frm.ToggleValueCorrection
+    LogShim.AssertEq "pl_corr_ui_checked", ChrW(&H2714), box.Caption
+    LogShim.AssertEq "pl_corr_keyboard_reveals_option", True, panel.Visible
+    frm.ToggleOptions
     LogShim.AssertEq "pl_corr_ui_shared", True, modUnivFilter.G_ValueCorrection
     Set offResult = modFilterRun.RunQuickFilter(Body(ws), Area(ws), 1, "1000")
     LogShim.AssertEq "pl_corr_quick_on", CLng(1), offResult("MatchedCount")
@@ -62,6 +77,7 @@ Public Sub Test_PL_CorrectionAndMissing()
     LogShim.AssertEq "pl_corr_missing_msg", True, Len(r("MissingMessage")) > 0
     LogShim.AssertEq "pl_corr_visible", CLng(1), modApply.CountVisibleRows(Area(ws))
 Cleanup:
+    Set box = Nothing: Set panel = Nothing
     If Not frm Is Nothing Then Unload frm
     Set frm = Nothing
     modUnivFilter.G_ValueCorrection = priorCorrection

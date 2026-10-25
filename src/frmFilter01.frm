@@ -27,7 +27,12 @@ Option Explicit
 Private pIsExcludeMode As Boolean   ' True: 제외(Exclude), False: 포함(Include)
 Private pIsStackMode As Boolean     ' True: 누적(Stack), False: 초기화(Reset)
 Private pIsPartialMatch As Boolean  ' True: 부분일치, False: 완전일치
-Private WithEvents chkValueCorrection As MSForms.CheckBox
+Private WithEvents lblOptions As MSForms.Label
+Private WithEvents lblCorrectionSwitch As MSForms.Label
+Private WithEvents lblCorrectionText As MSForms.Label
+Private fraOptions As MSForms.Frame
+Private mCollapsedHeight As Single
+Private mFooterTop As Single
 
 ' 외부 호출부(Main)로부터 주입받는 변수
 Public MyFormKey As String          ' 폼 인스턴스 관리를 위한 고유 식별자
@@ -81,34 +86,13 @@ Private Sub UserForm_Initialize()
 
     Log "UserForm_Initialize: 상태 복원 (Exclude: " & pIsExcludeMode & ", Stack: " & pIsStackMode & ")", lvlDebug
 
-    ' 기존 매칭 행 아래에 옵션을 두고 뒤쪽 컨트롤을 같은 간격으로 내린다.
-    Dim optionTop As Single, ctl As MSForms.Control
-    optionTop = txtFilterValues.Top
-    For Each ctl In Me.Controls
-        If ctl.Top >= optionTop Then ctl.Top = ctl.Top + 24
-    Next ctl
-    Me.Height = Me.Height + 24
-    Set chkValueCorrection = Me.Controls.Add("Forms.CheckBox.1", "chkValueCorrection", True)
-    With chkValueCorrection
-        .Caption = "숫자·날짜 자동보정 (F6)"
-        .Left = lblMatchSwitch.Left
-        .Top = optionTop
-        .Width = Me.InsideWidth - .Left - 12
-        .Height = 18
-        .Font.Name = lblMatchText.Font.Name
-        .Font.Size = lblMatchText.Font.Size
-        .BackStyle = fmBackStyleOpaque
-        .BackColor = Me.BackColor
-        .ForeColor = vbBlack
-        .ControlTipText = "표시가 일치하지 않으면 숫자·날짜로 다시 찾습니다. 반올림이 적용될 수 있습니다. 퀵 필터에도 적용됩니다."
-        .Value = G_ValueCorrection
-    End With
+    BuildOptions
     ResetHoverEffects
     UpdateUI
 End Sub
 
 Private Sub UserForm_Activate()
-    chkValueCorrection.Value = G_ValueCorrection
+    UpdateUI
     ' 헤더 이름 표시
     If InjectHeaderName <> "" Then
         Dim displayHeader As String
@@ -179,7 +163,7 @@ Private Sub btnApply_Click()
                         sInputTxt, _
                         pIsExcludeMode, _
                         pIsStackMode, _
-                        pIsPartialMatch, bValueCorrection:=CBool(chkValueCorrection.Value))
+                        pIsPartialMatch, bValueCorrection:=G_ValueCorrection)
 
     lblInfo.Caption = oldCaption
 
@@ -236,7 +220,6 @@ Private Sub UpdateUI()
     Const COL_RED As Long = &HC0
     Const COL_RESET As Long = &H947556
     Const COL_STACK As Long = &H503E2C
-    Const COL_MATCH_ON As Long = &H805000
 
     ' 1. 모드 표시 업데이트 (포함/제외)
     If pIsExcludeMode Then
@@ -256,36 +239,132 @@ Private Sub UpdateUI()
         SetLabelStyle lblStack, COL_BG_IDLE, COL_TXT_IDLE, False, COL_BORDER_IDLE
     End If
 
-    ' 3. 매칭 모드 체크박스 (표시 문자열 엔진에서는 어떤 열이든 자유 토글)
-    With lblMatchSwitch
-        If pIsPartialMatch Then
-            .Caption = ChrW(&H2714)
-            .BackColor = COL_MATCH_ON
-            .ForeColor = vbWhite
-            .BorderStyle = fmBorderStyleNone
+    ' Label의 표시만 바꾸므로 값 변경 이벤트가 재진입하지 않는다.
+    SetCheckStyle lblMatchSwitch, lblMatchText, pIsPartialMatch, True
+    SetCheckStyle lblCorrectionSwitch, lblCorrectionText, G_ValueCorrection, Not pIsPartialMatch
+    If fraOptions.Visible Then
+        lblOptions.Caption = "옵션 " & ChrW(&H25B4)
+    Else
+        lblOptions.Caption = "옵션 " & ChrW(&H25BE)
+        If G_ValueCorrection Then lblOptions.Caption = lblOptions.Caption & " (보정 켜짐)"
+    End If
+End Sub
 
-            lblMatchText.ForeColor = &H0  ' 검정
-            lblMatchText.Font.Bold = True
-        Else
-            .Caption = ""
-            .BackColor = COL_BG_IDLE
-            .BorderStyle = fmBorderStyleSingle
-            .BorderColor = COL_BORDER_IDLE
+Private Sub SetCheckStyle(ByVal box As MSForms.Label, ByVal text As MSForms.Label, _
+                          ByVal checked As Boolean, ByVal enabled As Boolean)
+    If checked Then
+        box.Caption = ChrW(&H2714)
+        SetLabelStyle box, &H805000, vbWhite, True, &H805000
+        text.ForeColor = vbBlack
+    Else
+        box.Caption = ""
+        SetLabelStyle box, &HF3F3F3, &H808080, False, &HD0D0D0
+        text.ForeColor = &H505050
+    End If
+    text.Font.Bold = checked
+    box.Enabled = enabled
+    text.Enabled = enabled
+End Sub
 
-            lblMatchText.ForeColor = COL_TXT_IDLE ' 연한 회색
-            lblMatchText.Font.Bold = False
-        End If
+Private Sub BuildOptions()
+    mCollapsedHeight = Me.Height
+    mFooterTop = lblApply.Top
+    Set fraOptions = Me.Controls.Add("Forms.Frame.1", "fraOptions", False)
+    With fraOptions
+        .Caption = ""
+        .BorderStyle = fmBorderStyleNone
+        .SpecialEffect = fmSpecialEffectFlat
+        .BackColor = Me.BackColor
+        .Left = lblMatchSwitch.Left
+        .Top = txtFilterValues.Top + txtFilterValues.Height + 8
+        .Width = txtFilterValues.Left + txtFilterValues.Width - .Left
     End With
-    chkValueCorrection.Enabled = Not pIsPartialMatch
+    Dim divider As MSForms.Label
+    Set divider = AddOptionLabel("lblOptionsDivider", "", 0, 0, fraOptions.Width)
+    divider.Height = 1
+    divider.BackStyle = fmBackStyleOpaque
+    divider.BackColor = &HD0D0D0
+    Set lblCorrectionSwitch = AddOptionLabel("lblCorrectionSwitch", "", 0, 10, lblMatchSwitch.Width)
+    With lblCorrectionSwitch
+        .Height = lblMatchSwitch.Height
+        .Font.Name = lblMatchSwitch.Font.Name
+        .Font.Size = lblMatchSwitch.Font.Size
+        .TextAlign = lblMatchSwitch.TextAlign
+        .BackStyle = fmBackStyleOpaque
+    End With
+    Dim textLeft As Single
+    textLeft = lblMatchText.Left - lblMatchSwitch.Left
+    Set lblCorrectionText = AddOptionLabel("lblCorrectionText", "숫자·날짜 자동보정", _
+                                           textLeft, 10, fraOptions.Width - textLeft)
+    lblCorrectionText.Top = lblCorrectionSwitch.Top + lblMatchText.Top - lblMatchSwitch.Top
+    lblCorrectionText.ControlTipText = _
+        "입력과 표시가 다르면 열의 서식으로 다시 찾습니다(1000 → 1,000). " & _
+        "반올림으로 다른 값도 선택될 수 있습니다. 퀵 필터에도 적용됩니다. (F6)"
+    lblCorrectionSwitch.ControlTipText = lblCorrectionText.ControlTipText
+    fraOptions.Height = lblCorrectionText.Top + lblCorrectionText.Height + 4
+    Set lblOptions = Me.Controls.Add("Forms.Label.1", "lblOptions", True)
+    With lblOptions
+        .Left = txtFilterValues.Left
+        .Top = mFooterTop
+        .Width = lblCancel.Left - .Left - 6
+        .Height = lblApply.Height
+        .Font.Name = lblMatchText.Font.Name
+        .Font.Size = lblMatchText.Font.Size
+        .Font.Bold = False
+        .ForeColor = &H505050
+        .BackStyle = fmBackStyleTransparent
+        .ControlTipText = "옵션 펼치기/접기 (F7)"
+    End With
 End Sub
 
-Private Sub chkValueCorrection_Click()
-    G_ValueCorrection = CBool(chkValueCorrection.Value)
+Private Function AddOptionLabel(ByVal name As String, ByVal caption As String, _
+                                ByVal left As Single, ByVal top As Single, ByVal width As Single) As MSForms.Label
+    Dim label As MSForms.Label
+    Set label = fraOptions.Controls.Add("Forms.Label.1", name, True)
+    With label
+        .Left = left: .Top = top: .Width = width
+        .Font.Name = lblMatchText.Font.Name
+        .Font.Size = lblMatchText.Font.Size
+        .Font.Bold = False
+        .ForeColor = &H505050
+        .BackStyle = fmBackStyleTransparent
+        .WordWrap = False
+        .Caption = caption
+        .AutoSize = False
+        .Height = lblMatchText.Height
+    End With
+    Set AddOptionLabel = label
+End Function
+
+' @desc 하단 옵션 영역을 펼치거나 접고 폼 높이를 조정함
+Public Sub ToggleOptions()
+    fraOptions.Visible = Not fraOptions.Visible
+    Dim extra As Single
+    If fraOptions.Visible Then extra = fraOptions.Top + fraOptions.Height + 8 - mFooterTop
+    lblApply.Top = mFooterTop + extra
+    lblCancel.Top = lblApply.Top
+    lblOptions.Top = lblApply.Top
+    Me.Height = mCollapsedHeight + extra
+    If Me.Visible And fraOptions.Visible Then
+        If Me.Top + Me.Height > Application.Top + Application.Height - 10 Then
+            Me.Top = Application.Top + Application.Height - Me.Height - 10
+        End If
+        If Me.Top < Application.Top + 10 Then Me.Top = Application.Top + 10
+    End If
+    UpdateUI
 End Sub
 
-Private Sub chkValueCorrection_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
-    RunGlobalShortcuts KeyCode, Shift
+' @desc 완전일치에서 자동보정 옵션을 전환하고 공통 설정에 반영함
+Public Sub ToggleValueCorrection()
+    If pIsPartialMatch Then Exit Sub
+    If Not fraOptions.Visible Then ToggleOptions
+    G_ValueCorrection = Not G_ValueCorrection
+    UpdateUI
 End Sub
+
+Private Sub lblOptions_Click(): ToggleOptions: End Sub
+Private Sub lblCorrectionSwitch_Click(): ToggleValueCorrection: End Sub
+Private Sub lblCorrectionText_Click(): ToggleValueCorrection: End Sub
 
 ' 공용 스타일 적용 헬퍼
 Private Sub SetLabelStyle(lbl As MSForms.Label, bgCol As Long, fontCol As Long, isBold As Boolean, borderCol As Long)
@@ -380,9 +459,8 @@ Private Sub RunGlobalShortcuts(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shi
         Case vbKeyF3: pIsStackMode = False:   UpdateUI: KeyCode = 0
         Case vbKeyF4: pIsStackMode = True:    UpdateUI: KeyCode = 0
         Case vbKeyF5: Call btnApply_Click:              KeyCode = 0
-        Case vbKeyF6
-            If Not pIsPartialMatch Then chkValueCorrection.Value = Not CBool(chkValueCorrection.Value)
-            KeyCode = 0
+        Case vbKeyF6: ToggleValueCorrection: KeyCode = 0
+        Case vbKeyF7: ToggleOptions: KeyCode = 0
     End Select
 
 End Sub
