@@ -245,41 +245,6 @@ Fail:
     Resume Cleanup
 End Sub
 
-' @desc 버튼 생성 실패 후 Excel 계산/이벤트/화면 설정 복원을 검증함
-Public Sub Test_PL_ButtonFailureRestoresState()
-    Dim ws As Worksheet
-    Set ws = PrepSheet()
-    Dim calc As XlCalculation, events As Boolean, screen As Boolean
-    calc = Application.Calculation
-    events = Application.EnableEvents
-    screen = Application.ScreenUpdating
-    On Error GoTo Fail
-    PutNumberCol ws
-    ws.Range("A1:A4").AutoFilter
-    ws.Protect DrawingObjects:=True
-    Dim errNum As Long
-    On Error Resume Next
-    modUnivFilter.CreateSearchButtons ws.Range("A1")
-    errNum = Err.Number
-    On Error GoTo Fail
-    LogShim.AssertEq "pl_button_error", True, errNum <> 0
-    LogShim.AssertEq "pl_button_calc", CLng(calc), CLng(Application.Calculation)
-    LogShim.AssertEq "pl_button_events", events, Application.EnableEvents
-    LogShim.AssertEq "pl_button_screen", screen, Application.ScreenUpdating
-Cleanup:
-    On Error Resume Next
-    ws.Unprotect
-    Application.Calculation = calc
-    Application.EnableEvents = events
-    Application.ScreenUpdating = screen
-    On Error GoTo 0
-    DropSheet
-    Exit Sub
-Fail:
-    LogShim.AssertEq "pl_button_restore_error", "", Err.Description
-    Resume Cleanup
-End Sub
-
 ' @desc 정상/실패 반환 시 원래 전역 설정과 중단 정책 보존을 검증함
 Public Sub Test_PL_RestoresSettings()
     Dim ws As Worksheet, calc As XlCalculation, events As Boolean, screen As Boolean

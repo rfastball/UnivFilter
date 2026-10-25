@@ -1,8 +1,8 @@
 Attribute VB_Name = "modUnivFilter"
 ' SPDX-License-Identifier: MIT
 ' Copyright (c) 2026 JM - see LICENSE
-' @desc 진입 UI(버튼/메뉴)와 폼 기동 담당
-' @depends frmFilter01, modCache, modLogger, AutoCloseMsgAPI, Utilities
+' @desc 메뉴 진입과 폼 기동 담당
+' @depends frmFilter01, modCache, modLogger, AutoCloseMsgAPI
 Option Explicit
 
 ' ==============================================================================
@@ -32,20 +32,6 @@ Public G_OpenForms As Collection        ' 폼 중복 실행 방지용 컬렉션
 ' ==============================================================================
 ' [Main] 유니버설 필터 진입점
 ' ==============================================================================
-' @desc 호출원 셀을 식별해 필터 폼을 엶
-Public Sub ShowUniversalFilter()
-    Dim targetCell As Range, btn As Shape
-    On Error Resume Next
-    If TypeName(Application.Caller) = "String" Then
-        Set btn = ActiveSheet.Shapes(Application.Caller)
-        If Not btn Is Nothing Then Set targetCell = btn.TopLeftCell
-    Else
-        Set targetCell = ActiveCell
-    End If
-    On Error GoTo 0
-    OpenFilterForm targetCell, True
-End Sub
-
 ' @desc 대상 셀 받아 공용 폼을 표시함, 대상 없으면 알림
 Public Sub OpenFilterForm(ByVal targetCell As Range, Optional ByVal atCursor As Boolean = False)
     Dim frm As frmFilter01
@@ -260,7 +246,7 @@ End Sub
 Sub SetupContextMenu()
     RemoveContextMenu
     Dim cBar As CommandBar, menuName As Variant
-    Dim btnRun As CommandBarButton, subMenu As CommandBarPopup
+    Dim btnRun As CommandBarButton
     
     For Each menuName In Array("Cell", "List Range Popup")
         On Error Resume Next
@@ -278,15 +264,6 @@ Sub SetupContextMenu()
                 .BeginGroup = True
             End With
             
-            ' 관리 서브메뉴
-            Set subMenu = cBar.Controls.Add(Type:=msoControlPopup, Before:=2, Temporary:=True)
-            With subMenu
-                .Caption = "UnivFilter 버튼 관리"
-                .tag = "UniversalFilterContext"
-                .Controls.Add(msoControlButton, Temporary:=True).Caption = "버튼 생성 (해당 열)": .Controls(1).OnAction = "ToggleSearchButtonsInSelection": .Controls(1).FaceId = 486
-                .Controls.Add(msoControlButton, Temporary:=True).Caption = "버튼 삭제 (해당 열)": .Controls(2).OnAction = "DeleteButtonsInSelection": .Controls(2).FaceId = 358
-                .Controls.Add(msoControlButton, Temporary:=True).Caption = "버튼 초기화 (전체)": .Controls(3).OnAction = "DeleteAllFilterButtons": .Controls(3).FaceId = 463: .Controls(3).BeginGroup = True
-            End With
         End If
     Next menuName
 End Sub
@@ -302,147 +279,6 @@ Sub RemoveContextMenu()
     On Error GoTo 0
 End Sub
 
-' ==============================================================================
-' [Buttons] 시트 내 버튼 생성/삭제 로직
-' ==============================================================================
-' @desc 선택 범위의 필터 버튼을 생성함
-Public Sub ToggleSearchButtonsInSelection()
-    If TypeName(Selection) <> "Range" Then Exit Sub
-    On Error GoTo Fail
-    CreateSearchButtons Selection
-    Exit Sub
-Fail:
-    MsgBox "버튼 생성 중 오류 발생: " & Err.Description
-End Sub
-
-' @desc 범위의 필터 버튼을 생성함, 실패 시 설정 복원 후 오류 전달
-Public Sub CreateSearchButtons(ByVal target As Range)
-    Dim area As Range
-    Dim ws As Worksheet: Set ws = target.Parent
-    Dim colRng As Range, headerCell As Range
-    Dim btn As Shape
-    Dim btnName As String, btnSize As Double
-    Dim processedCols As Object: Set processedCols = CreateObject("Scripting.Dictionary")
-    
-    
-    On Error GoTo ErrHandler
-    Call OptimizedMode(True)
-    
-    For Each area In target.Areas
-        For Each colRng In area.Columns
-            If Not processedCols.exists(colRng.Column) Then
-                processedCols.Add colRng.Column, True
-                
-                Set headerCell = Nothing
-                
-                ' 1. 헤더 셀 찾기
-                On Error Resume Next
-                If Not colRng.Cells(1).ListObject Is Nothing Then
-                    Set headerCell = Intersect(colRng.Cells(1).ListObject.HeaderRowRange, ws.Columns(colRng.Column))
-                ElseIf ws.AutoFilterMode Then
-                    If Not Intersect(ws.Columns(colRng.Column), ws.AutoFilter.Range) Is Nothing Then
-                        Set headerCell = Intersect(ws.AutoFilter.Range.Rows(1), ws.Columns(colRng.Column))
-                    End If
-                End If
-                On Error GoTo ErrHandler
-                
-                ' 2. 버튼 처리 (삭제 후 생성)
-                If Not headerCell Is Nothing Then
-                    btnName = "SmartFilterBtn_" & headerCell.Address(False, False)
-                    
-                    ' 일단 존재 여부 묻지 않고 삭제 (없으면 에러 무시하고 넘어감)
-                    On Error Resume Next
-                    ws.Shapes(btnName).Delete
-                    On Error GoTo ErrHandler
-                    
-                    ' 무조건 새로 생성
-                    btnSize = Application.Min(Application.Max(headerCell.Height * 0.45, 10), 16)
-                    Set btn = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
-                              headerCell.Left + 0.5, _
-                              headerCell.Top + headerCell.Height - btnSize - 0.5, _
-                              btnSize, btnSize)
-                    
-                    With btn
-                        .Placement = xlMove
-                        .Adjustments.item(1) = 0.15
-                        .Fill.ForeColor.RGB = RGB(240, 240, 240)
-                        .Line.ForeColor.RGB = RGB(170, 170, 170)
-                        .Line.Weight = 0.75
-                        .Shadow.Visible = msoFalse
-                        .Name = btnName
-                        .OnAction = "ShowUniversalFilter"
-                        .ControlFormat.PrintObject = False
-                        
-                        With .TextFrame2
-                            .TextRange.text = "L"
-                            .TextRange.Font.Name = "Webdings"
-                            .TextRange.Font.Fill.ForeColor.RGB = RGB(80, 80, 80)
-                            .VerticalAnchor = msoAnchorMiddle
-                            .HorizontalAnchor = msoAnchorCenter
-                            .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
-                            .TextRange.Font.Size = btnSize * 0.7
-                        End With
-                    End With
-                End If
-            End If
-        Next colRng
-    Next area
-    
-    Set processedCols = Nothing
-    Call OptimizedMode(False)
-    Exit Sub
-    
-ErrHandler:
-    Dim errNum As Long, errDesc As String
-    errNum = Err.Number: errDesc = Err.Description
-    Utilities.OptimizedMode False
-    Err.Raise errNum, "modUnivFilter.CreateSearchButtons", errDesc
-    
-End Sub
-
-Sub DeleteButtonsInSelection()
-    If TypeName(Selection) <> "Range" Then Exit Sub
-    Dim shp As Shape
-    
-    On Error GoTo ErrHandler
-    Call OptimizedMode(True)
-    
-    For Each shp In ActiveSheet.Shapes
-        If shp.Name Like "SmartFilterBtn_*" Then
-            If Not Intersect(ActiveSheet.Columns(shp.TopLeftCell.Column), Selection.EntireColumn) Is Nothing Then shp.Delete
-        End If
-    Next shp
-    Call OptimizedMode(False)
-    Exit Sub
-    
-ErrHandler:
-    ' 에러 발생 시에도 설정 복구
-    Call OptimizedMode(False)
-    MsgBox "버튼 삭제 중 오류 발생: " & Err.Description
-End Sub
-
-Sub DeleteAllFilterButtons()
-    If MsgBox("모든 필터 버튼을 삭제하시겠습니까?", vbQuestion + vbYesNo) = vbNo Then Exit Sub
-    Dim shp As Shape, delCount As Long
-    
-    ' [Fix v2.7] 최적화 모드 진입/복구 패턴 통일
-    On Error GoTo ErrHandler
-    Call OptimizedMode(True)
-
-    For Each shp In ActiveSheet.Shapes
-        If shp.Name Like "SmartFilterBtn_*" Then shp.Delete: delCount = delCount + 1
-    Next shp
-    Call OptimizedMode(False)
-    MsgBox "초기화 완료 (" & delCount & "개 삭제)", vbInformation
-    Exit Sub
-    
-ErrHandler:
-    ' 에러 발생 시에도 설정 복구
-    Call OptimizedMode(False)
-    MsgBox "버튼 초기화 중 오류 발생: " & Err.Description
-
-End Sub
-
 Sub CallFilterFromMenu()
-    Call ShowUniversalFilter
+    OpenFilterForm ActiveCell, True
 End Sub

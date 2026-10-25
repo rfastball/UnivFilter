@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`UnivFilter` — Excel VBA add-in that adds a custom Universal Filter (in-cell button + context menu + global shortcuts) to any ListObject/AutoFilter range. The shipping artifact is `../UnivFilter.xlsm`; the files under `src/` are the source of truth for that workbook's modules.
+`UnivFilter` — Excel VBA add-in that adds a custom Universal Filter (context menu + global shortcuts) to any ListObject/AutoFilter range. The shipping artifact is `../UnivFilter.xlsm`; the files under `src/` are the source of truth for that workbook's modules.
 
 2026-07-09 엔진 백지 재설계 완료: 서식 예측/타입 판별 기반의 구 엔진을 걷어내고
 **표시 문자열 우주** 기반으로 재구축했다. 설계 근거는 전부 자매 프로젝트 실측이다.
@@ -64,8 +64,8 @@ corrected = 값 레인으로만 매칭된 토큰 ("1000" -> "1,000" 자동보정
 ### Two entry paths share one pipeline
 
 ```
-[Button click / context menu]        [Ctrl+Shift+Q / Ctrl+Shift+U]
-   modUnivFilter.ShowUniversalFilter      modShortcuts.UnivFilter_*Handler
+[Context menu]        [Ctrl+Shift+Q / Ctrl+Shift+U]
+   modUnivFilter.CallFilterFromMenu      modShortcuts.UnivFilter_*Handler
               │                                       │
               └──────────────► frmFilter01 ◄──────────┘
                   (UI만: Range 주입/토글/위임 - 자산 미보유)
@@ -104,7 +104,7 @@ Utilities가 원래 계산/화면 갱신/이벤트를 복원한 뒤 호출자의
 | `clsColAsset` | RenderedVec(행별 렌더키) + 지연 인덱스(Displays/ValueMap/RowCountByKey) + BlankCount + 지문 스탬프 + 멤버십 스캔 프리미티브(ScanOne/ScanCount) |
 | `clsColSig` | 열 지문: RowCount + ContentVec(Value2 배열) + 서식rep. `Matches` 저장-비교(충돌0) |
 | `frmFilter01` | UI 전용: Range 주입받아 RunFilter 위임, 결과 팝업 |
-| `modUnivFilter` | 셀 기준 대상 해석/폼 재사용/버튼/메뉴/폼 위치(DPI), 전역 상태 G_LastExcludeMode/G_LastStackMode/G_OpenForms |
+| `modUnivFilter` | 셀 기준 대상 해석/폼 재사용/메뉴/폼 위치(DPI), 전역 상태 G_LastExcludeMode/G_LastStackMode/G_OpenForms |
 | `modShortcuts` | Q/U 핸들러 (대상/폼은 modUnivFilter 공용 진입점에 위임) |
 
 인프라(불변): `clsSet`+`modIndexKey`(UnivDB 벤더링 - vendor.manifest, 직접 수정 금지),
@@ -147,7 +147,7 @@ Matched / Missing / Corrections 및 매칭 행수를 벌크 경로와 대조한�
 - em dash(U+2014)/이모지 등 CP949 밖 문자 소스 사용 금지 — `vbaloop push`가 거부. 원화 기호는 `ChrW(8361)`.
 - VBA `And`/`Or`는 단락평가가 없다 — Null/Nothing 가드는 중첩 If로.
 - 폼은 **모드리스**(`.Show vbModeless`). `G_OpenForms` 재활성화 경로를 이해하기 전에 모달 전환 금지.
-- `OnAction` 문자열 간접 호출: shape 버튼 → `ShowUniversalFilter`, 컨텍스트 메뉴 → `CallFilterFromMenu`. 해당 Public Sub 이름 변경 시 `modUnivFilter`의 `.OnAction =` 할당도 함께 갱신.
+- `OnAction` 문자열 간접 호출: 컨텍스트 메뉴 → `CallFilterFromMenu`. 해당 Public Sub 이름 변경 시 `modUnivFilter`의 `.OnAction =` 할당도 함께 갱신.
 - `Public` const/enum 전역: `SetRetMode`(clsSet), `LogLevel`(modLogger), `DbIndexBackend`(modIndexKey, 벤더링 부산물). 구 `FilterDataType`/`ModePolicy`는 삭제됨.
 
 ## 설계 문서

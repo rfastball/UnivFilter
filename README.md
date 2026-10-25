@@ -46,7 +46,7 @@ Windows용 데스크톱 Excel과 매크로 실행이 필요합니다.
 
 ### 조건을 골라 필터링하기
 
-대상 열의 셀을 선택하고 `Ctrl+Shift+U`를 누르거나, 우클릭 메뉴에서 **UnivFilter 실행**을 선택합니다. 설정 창에 값 목록을 붙여넣고 조건을 선택해 실행하세요. 생성해 둔 셀 안 버튼으로도 설정 창을 열 수 있습니다.
+대상 열의 셀을 선택하고 `Ctrl+Shift+U`를 누르거나, 우클릭 메뉴에서 **UnivFilter 실행**을 선택합니다. 설정 창에 값 목록을 붙여넣고 조건을 선택해 실행하세요.
 
 | 설정 | 동작 |
 |---|---|
@@ -85,7 +85,7 @@ vbaloop test
 | 소스 | 역할 |
 |---|---|
 | `frmFilter01` | 필터 설정 창 |
-| `modUnivFilter`, `modShortcuts` | 대상 열 선택, 버튼·메뉴·단축키 연결 |
+| `modUnivFilter`, `modShortcuts` | 대상 열 선택, 메뉴·단축키 연결 |
 | `modFilterRun` | 입력부터 필터 적용과 결과 안내까지 실행 순서 제어 |
 | `modInputParse`, `modMatch` | 입력 목록 분리, 숫자·날짜 해석, 일치하는 값 검색 |
 | `modColumnScan`, `modCache` | 열의 값·서식 읽기, 비교용 문자열 생성과 캐시 갱신 |
