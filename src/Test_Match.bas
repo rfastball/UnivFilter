@@ -30,17 +30,25 @@ Public Sub Test_MT_ValueBridge()
 
     ' "0.5"는 표시에 없음 -> 값 0.5의 표시쌍둥이 2개로 전개 (FACT 3 의미론)
     Dim r As Object
-    Set r = modMatch.Execute(Array("0.5"), asset, False)
+    Set r = modMatch.Execute(Array("0.5"), asset, False, True)
     LogShim.AssertEq "mt_bridge_twins", CLng(2), r("Matched").Count
     LogShim.AssertEq "mt_bridge_corr", True, r("Corrections").exists("0.5")
 
     ' "1000" -> "1,000" 자동보정
-    Set r = modMatch.Execute(Array("1000"), asset, False)
+    Set r = modMatch.Execute(Array("1000"), asset, False, True)
     LogShim.AssertEq "mt_bridge_comma", True, r("Matched").Contains("1,000")
     LogShim.AssertEq "mt_bridge_comma_corr", "1,000", CStr(r("Corrections")("1000"))
 
+    Set r = modMatch.Execute(Array("1000", "0.5"), asset, False)
+    LogShim.AssertEq "mt_bridge_default_off", CLng(0), r("Matched").Count
+    LogShim.AssertEq "mt_bridge_off_missing", CLng(2), MissingCount(r)
+    LogShim.AssertEq "mt_bridge_off_no_corr", CLng(0), r("Corrections").Count
+
+    Set r = modMatch.Execute(Array("1000"), asset, True, True)
+    LogShim.AssertEq "mt_partial_never_corrects", CLng(0), r("Matched").Count
+
     ' 표시 레인 적중 시 값 레인 미가동 (0.50은 보정 없이 그 표시만)
-    Set r = modMatch.Execute(Array("0.50"), asset, False)
+    Set r = modMatch.Execute(Array("0.50"), asset, False, True)
     LogShim.AssertEq "mt_display_wins", CLng(1), r("Matched").Count
 End Sub
 

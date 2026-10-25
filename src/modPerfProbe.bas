@@ -564,7 +564,7 @@ Private Sub MeasureExec(ByVal tag As String, ByVal nBlk As Long, ByVal kind As S
     Dim outcome As Object
     t0 = Timer
     For j = 1 To REP
-        Set outcome = modMatch.Execute(tokens, asset, False)
+        Set outcome = modMatch.Execute(tokens, asset, False, True)
     Next j
     Dim totalMs As Double
     totalMs = (Timer - t0) * 1000!

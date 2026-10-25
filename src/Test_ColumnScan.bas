@@ -452,8 +452,8 @@ Public Sub Test_CS_FallbackMatch()
         modColumnScan.G_ForceLegacyRender = False
         For Each tokens In inputs
             tag = "fallback_" & CStr(scenario) & "_" & Join(tokens, "/")
-            Set expected = modMatch.Execute(tokens, fast, False)
-            Set actual = modMatch.Execute(tokens, fallback, False)
+            Set expected = modMatch.Execute(tokens, fast, False, True)
+            Set actual = modMatch.Execute(tokens, fallback, False, True)
             If CStr(tokens(0)) = "1.44" Then
                 LogShim.AssertEq tag & "_oracle", True, expected("Matched").Contains("1.4")
             End If
@@ -466,6 +466,16 @@ Public Sub Test_CS_FallbackMatch()
             Next key
             LogShim.AssertEq tag & "_rows", fast.ExpectedRows(expected("Matched"), False), _
                                                    fallback.ExpectedRows(actual("Matched"), False)
+        Next tokens
+        ' 보정 OFF는 벌크/셀별 모두 원문 표시만 선택하고 행수도 같은 기준을 따른다.
+        For Each tokens In Array(Array("1.44"), Array("1.44", "1.4"))
+            Set expected = modMatch.Execute(tokens, fast, False)
+            Set actual = modMatch.Execute(tokens, fallback, False)
+            LogShim.AssertEq "fallback_off_count", CLng(UBound(tokens)), expected("Matched").Count
+            LogShim.AssertEq "fallback_off_same", expected("Matched").Count, actual("Matched").Count
+            LogShim.AssertEq "fallback_off_rows", CLng(UBound(tokens)), actual("MatchedRows")
+            LogShim.AssertEq "fallback_off_missing", "1.44", Join(actual("Missing"), "|")
+            LogShim.AssertEq "fallback_off_corr", CLng(0), actual("Corrections").Count
         Next tokens
     Next scenario
 Cleanup:

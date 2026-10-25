@@ -26,6 +26,7 @@ Private Const LOGPIXELSY As Long = 90
 ' ==============================================================================
 Public G_LastExcludeMode As Boolean     ' 마지막 제외 모드 상태
 Public G_LastStackMode As Boolean       ' 마지막 누적 모드 상태
+Public G_ValueCorrection As Boolean     ' 폼/퀵 공통 숫자·날짜 보정, 세션 기본 OFF
 Public G_OpenForms As Collection        ' 폼 중복 실행 방지용 컬렉션
 
 ' ==============================================================================

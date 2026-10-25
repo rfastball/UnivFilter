@@ -154,7 +154,7 @@ Public Sub Test_AP_AccountingE2E()
 
     ' 사용자는 화면 요지("1,234")를 입력 -> 값 레인이 접힌 키로 브리지
     Dim r As Object
-    Set r = modMatch.Execute(Array("1,234"), asset, False)
+    Set r = modMatch.Execute(Array("1,234"), asset, False, True)
     LogShim.AssertEq "ap_acc_matched", CLng(1), r("Matched").Count
     LogShim.AssertEq "ap_acc_corrected", True, r("Corrections").exists("1,234")
 

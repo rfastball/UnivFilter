@@ -2,7 +2,7 @@ Attribute VB_Name = "modFilterRun"
 ' SPDX-License-Identifier: MIT
 ' Copyright (c) 2026 JM - see LICENSE
 ' @desc 필터 실행 파이프라인 오케스트레이션 담당
-' @depends modCache, modInputParse, modMatch, modApply, modReport, clsColAsset, clsSet, Utilities, modLogger
+' @depends modCache, modInputParse, modMatch, modApply, modReport, clsColAsset, clsSet, Utilities, modLogger, modUnivFilter
 Option Explicit
 
 ' 최초 스캔이 이 값을 넘으면 사후 안내(ScanNote). 캐시 적중은 즉시라 미스만 걸린다.
@@ -13,7 +13,8 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
                           ByVal lField As Long, ByVal sRawText As String, _
                           ByVal bExclude As Boolean, ByVal bStack As Boolean, _
                           ByVal bPartial As Boolean, _
-                          Optional ByVal bQuickZeroNoop As Boolean = False) As Object
+                          Optional ByVal bQuickZeroNoop As Boolean = False, _
+                          Optional ByVal bValueCorrection As Boolean = False) As Object
     Dim result As Object
     Set result = CreateObject("Scripting.Dictionary")
     result("Ok") = False
@@ -54,7 +55,7 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
 
     ' 3. 매칭 (2레인)
     Dim outcome As Object
-    Set outcome = modMatch.Execute(tokens, asset, bPartial)
+    Set outcome = modMatch.Execute(tokens, asset, bPartial, bValueCorrection)
     Dim matched As clsSet
     Set matched = outcome("Matched")
     result("MatchedCount") = matched.Count
@@ -166,7 +167,7 @@ End Function
 Public Function RunQuickFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, _
                                ByVal lField As Long, ByVal sClipText As String) As Object
     Set RunQuickFilter = RunFilter(rngBody, rngFilterArea, lField, sClipText, _
-                                   False, False, False, True)
+                                   False, False, False, True, modUnivFilter.G_ValueCorrection)
 End Function
 
 Private Function EmptyApplyInfo() As Object

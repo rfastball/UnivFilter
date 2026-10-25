@@ -34,17 +34,42 @@ Public Sub Test_PL_CorrectionAndMissing()
     Set ws = PrepSheet()
     PutNumberCol ws
 
+    Dim priorCorrection As Boolean, frm As frmFilter01
+    priorCorrection = modUnivFilter.G_ValueCorrection
+    On Error GoTo Fail
+    modUnivFilter.G_ValueCorrection = False
+    Set frm = New frmFilter01
+    LogShim.AssertEq "pl_corr_ui_default", False, CBool(frm.Controls("chkValueCorrection").Value)
+    ' 기본 OFF: 퀵 필터는 무적용, 폼 파이프라인은 누락으로 판정한다.
+    Dim offResult As Object
+    Set offResult = modFilterRun.RunQuickFilter(Body(ws), Area(ws), 1, "1000")
+    LogShim.AssertEq "pl_corr_quick_off", True, offResult("QuickNoMatch")
+    Set offResult = modFilterRun.RunFilter(Body(ws), Area(ws), 1, "1000", False, False, False)
+    LogShim.AssertEq "pl_corr_form_off", CLng(0), offResult("MatchedCount")
+    LogShim.AssertEq "pl_corr_off_report", "", CStr(offResult("CorrectionInline"))
+    frm.Controls("chkValueCorrection").Value = True
+    LogShim.AssertEq "pl_corr_ui_shared", True, modUnivFilter.G_ValueCorrection
+    Set offResult = modFilterRun.RunQuickFilter(Body(ws), Area(ws), 1, "1000")
+    LogShim.AssertEq "pl_corr_quick_on", CLng(1), offResult("MatchedCount")
+
     ' "1000"은 표시에 없음 -> 값 브리지로 "1,000" 보정. "9999"는 누락.
     Dim r As Object
     Set r = modFilterRun.RunFilter(Body(ws), Area(ws), 1, _
-                                   "1000" & vbCrLf & "9999", False, False, False)
+                                   "1000" & vbCrLf & "9999", False, False, False, bValueCorrection:=True)
 
     LogShim.AssertEq "pl_corr_ok", True, r("Ok")
     LogShim.AssertEq "pl_corr_inline", True, InStr(modReport.StatusLine(r), "1000 -> 1,000") > 0
     LogShim.AssertEq "pl_corr_missing_msg", True, Len(r("MissingMessage")) > 0
     LogShim.AssertEq "pl_corr_visible", CLng(1), modApply.CountVisibleRows(Area(ws))
-
+Cleanup:
+    If Not frm Is Nothing Then Unload frm
+    Set frm = Nothing
+    modUnivFilter.G_ValueCorrection = priorCorrection
     DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "pl_corr_error", "", Err.Description
+    Resume Cleanup
 End Sub
 
 ' @desc 제외 모드(여집합+빈칸 유지)를 검증함

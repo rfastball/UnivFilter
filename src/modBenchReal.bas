@@ -2,7 +2,7 @@ Attribute VB_Name = "modBenchReal"
 ' SPDX-License-Identifier: MIT
 ' Copyright (c) 2026 JM - see LICENSE
 ' @desc 실데이터 열을 격리 fixture로 복제하고 스캔경로 접근당 비용 계측 담당
-' @depends modCache, modColumnScan, modFilterRun, modInputParse, modMatch, modApply, modReport, clsColAsset, clsColSig, clsSet, frmFilter01, Utilities, LogShim
+' @depends modUnivFilter, modCache, modColumnScan, modFilterRun, modInputParse, modMatch, modApply, modReport, clsColAsset, clsColSig, clsSet, frmFilter01, Utilities, LogShim
 Option Explicit
 
 Private Declare PtrSafe Function QueryPerformanceCounter Lib "kernel32" (ByRef value As Currency) As Long
@@ -1079,7 +1079,7 @@ Private Sub QuickCol(ByVal ws As Worksheet, ByVal nCols As Long, _
 
     Dim outcome As Object
     t0 = Timer
-    Set outcome = modMatch.Execute(tokens, asset, False)
+    Set outcome = modMatch.Execute(tokens, asset, False, modUnivFilter.G_ValueCorrection)
     Dim matchMs As Double
     matchMs = (Timer - t0) * 1000!
     Dim matched As clsSet
@@ -1256,7 +1256,7 @@ SkipEval:
     ' 2d) 매칭 (렌더키 멤버십 스캔)
     t0 = Timer
     Dim outcome As Object
-    Set outcome = modMatch.Execute(tokens, asset, False)
+    Set outcome = modMatch.Execute(tokens, asset, False, modUnivFilter.G_ValueCorrection)
     Dim matchMs As Double
     matchMs = (Timer - t0) * 1000!
     Dim matched As clsSet

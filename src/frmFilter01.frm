@@ -27,6 +27,7 @@ Option Explicit
 Private pIsExcludeMode As Boolean   ' True: 제외(Exclude), False: 포함(Include)
 Private pIsStackMode As Boolean     ' True: 누적(Stack), False: 초기화(Reset)
 Private pIsPartialMatch As Boolean  ' True: 부분일치, False: 완전일치
+Private WithEvents chkValueCorrection As MSForms.CheckBox
 
 ' 외부 호출부(Main)로부터 주입받는 변수
 Public MyFormKey As String          ' 폼 인스턴스 관리를 위한 고유 식별자
@@ -80,11 +81,34 @@ Private Sub UserForm_Initialize()
 
     Log "UserForm_Initialize: 상태 복원 (Exclude: " & pIsExcludeMode & ", Stack: " & pIsStackMode & ")", lvlDebug
 
+    ' 기존 매칭 행 아래에 옵션을 두고 뒤쪽 컨트롤을 같은 간격으로 내린다.
+    Dim optionTop As Single, ctl As MSForms.Control
+    optionTop = txtFilterValues.Top
+    For Each ctl In Me.Controls
+        If ctl.Top >= optionTop Then ctl.Top = ctl.Top + 24
+    Next ctl
+    Me.Height = Me.Height + 24
+    Set chkValueCorrection = Me.Controls.Add("Forms.CheckBox.1", "chkValueCorrection", True)
+    With chkValueCorrection
+        .Caption = "숫자·날짜 자동보정 (F6)"
+        .Left = lblMatchSwitch.Left
+        .Top = optionTop
+        .Width = Me.InsideWidth - .Left - 12
+        .Height = 18
+        .Font.Name = lblMatchText.Font.Name
+        .Font.Size = lblMatchText.Font.Size
+        .BackStyle = fmBackStyleOpaque
+        .BackColor = Me.BackColor
+        .ForeColor = vbBlack
+        .ControlTipText = "표시가 일치하지 않으면 숫자·날짜로 다시 찾습니다. 반올림이 적용될 수 있습니다. 퀵 필터에도 적용됩니다."
+        .Value = G_ValueCorrection
+    End With
     ResetHoverEffects
     UpdateUI
 End Sub
 
 Private Sub UserForm_Activate()
+    chkValueCorrection.Value = G_ValueCorrection
     ' 헤더 이름 표시
     If InjectHeaderName <> "" Then
         Dim displayHeader As String
@@ -155,7 +179,7 @@ Private Sub btnApply_Click()
                         sInputTxt, _
                         pIsExcludeMode, _
                         pIsStackMode, _
-                        pIsPartialMatch)
+                        pIsPartialMatch, bValueCorrection:=CBool(chkValueCorrection.Value))
 
     lblInfo.Caption = oldCaption
 
@@ -252,6 +276,15 @@ Private Sub UpdateUI()
             lblMatchText.Font.Bold = False
         End If
     End With
+    chkValueCorrection.Enabled = Not pIsPartialMatch
+End Sub
+
+Private Sub chkValueCorrection_Click()
+    G_ValueCorrection = CBool(chkValueCorrection.Value)
+End Sub
+
+Private Sub chkValueCorrection_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
+    RunGlobalShortcuts KeyCode, Shift
 End Sub
 
 ' 공용 스타일 적용 헬퍼
@@ -347,6 +380,9 @@ Private Sub RunGlobalShortcuts(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shi
         Case vbKeyF3: pIsStackMode = False:   UpdateUI: KeyCode = 0
         Case vbKeyF4: pIsStackMode = True:    UpdateUI: KeyCode = 0
         Case vbKeyF5: Call btnApply_Click:              KeyCode = 0
+        Case vbKeyF6
+            If Not pIsPartialMatch Then chkValueCorrection.Value = Not CBool(chkValueCorrection.Value)
+            KeyCode = 0
     End Select
 
 End Sub

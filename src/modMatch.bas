@@ -14,9 +14,10 @@ Option Explicit
 
 ' @desc 토큰 배열과 자산 받아 매칭/누락/보정 결과 반환, 토큰 없으면 빈 결과 반환
 Public Function Execute(ByVal vTokens As Variant, ByVal asset As clsColAsset, _
-                        ByVal bPartial As Boolean) As Object
+                        ByVal bPartial As Boolean, _
+                        Optional ByVal bValueCorrection As Boolean = False) As Object
     If asset.HasRendered And Not bPartial Then
-        Set Execute = ExecuteScan(vTokens, asset)
+        Set Execute = ExecuteScan(vTokens, asset, bValueCorrection)
         Exit Function
     End If
 
@@ -39,7 +40,7 @@ Public Function Execute(ByVal vTokens As Variant, ByVal asset As clsColAsset, _
         End If
         For i = LBound(vTokens) To UBound(vTokens)
             t = CStr(vTokens(i))
-            If Not MatchToken(t, asset, bPartial, matched, corrections, keys) Then
+            If Not MatchToken(t, asset, bPartial, matched, corrections, keys, bValueCorrection) Then
                 missing.Add t
             End If
         Next i
@@ -57,7 +58,8 @@ End Function
 ' 완전일치 직스캔 매칭: 인덱스 미구축 상태를 유지한 채 표시/값 레인을 판정한다.
 ' pass1 토큰 멤버십+행계수 -> 미스 토큰만 값 레인 후보 -> pass2 후보 멤버십+행계수.
 ' 후보는 토큰과 겹치지 않게 걸러 두 패스의 행계수가 서로소로 합산된다.
-Private Function ExecuteScan(ByVal vTokens As Variant, ByVal asset As clsColAsset) As Object
+Private Function ExecuteScan(ByVal vTokens As Variant, ByVal asset As clsColAsset, _
+                             ByVal bValueCorrection As Boolean) As Object
     Dim result As Object
     Set result = CreateObject("Scripting.Dictionary")
 
@@ -91,7 +93,7 @@ Private Function ExecuteScan(ByVal vTokens As Variant, ByVal asset As clsColAsse
     ' 값 레인 후보: 미스 토큰의 파싱값 x 블록 서식 -> 우주 후보키
     ' (토큰과 겹치는 후보는 pass1이 이미 판정 - candDict에 넣지 않아 계수 중복 방지)
     Dim fmts As Collection
-    Set fmts = BlockFormats(asset)
+    If bValueCorrection Then Set fmts = BlockFormats(asset)
     Dim candDict As Object                    ' 후보키 -> 발견 여부
     Set candDict = CreateObject("Scripting.Dictionary")
     candDict.CompareMode = vbTextCompare
@@ -101,7 +103,7 @@ Private Function ExecuteScan(ByVal vTokens As Variant, ByVal asset As clsColAsse
     Dim vTok As Variant, cands As Variant
     Dim j As Long, f As Long, ck As String, lst As String
     For Each vTok In tokDict.Keys
-        If Not tokDict(vTok) Then
+        If bValueCorrection And Not tokDict(vTok) Then
             cands = modInputParse.TryParseValues(CStr(vTok))
             lst = ""
             For j = LBound(cands) To UBound(cands)
@@ -197,7 +199,8 @@ End Function
 ' 토큰 1개를 표시 레인 -> 값 레인 순으로 매칭한다. 성공 시 True.
 Private Function MatchToken(ByVal t As String, ByVal asset As clsColAsset, _
                             ByVal bPartial As Boolean, ByVal matched As clsSet, _
-                            ByVal corrections As Object, ByRef keys As Variant) As Boolean
+                            ByVal corrections As Object, ByRef keys As Variant, _
+                            ByVal bValueCorrection As Boolean) As Boolean
     Dim hit As Boolean
 
     If bPartial Then
@@ -214,7 +217,7 @@ Private Function MatchToken(ByVal t As String, ByVal asset As clsColAsset, _
         If asset.Displays.Contains(t) Then
             matched.Add t
             hit = True
-        Else
+        ElseIf bValueCorrection Then
             ' 값 레인: 숫자/날짜 해석 -> 값 지도 -> 표시 키 합류 (자동보정 기록)
             ' 값 지도 값은 vbNullChar 연결 문자열 (성능 계약 - modColumnScan 참조)
             Dim cands As Variant
