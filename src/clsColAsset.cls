@@ -171,7 +171,6 @@ End Function
 ' 누적 규칙은 구 렌더 경로와 동일(빈칸 제외, Double만 값지도, 대소문자 무시 키).
 Private Sub EnsureIndexes()
     If mIndexesBuilt Then Exit Sub
-    mIndexesBuilt = True
 
     Dim rowByKey As Object
     Set rowByKey = CreateObject("Scripting.Dictionary")
@@ -197,6 +196,7 @@ Private Sub EnsureIndexes()
     Set mDisplays = displays
     Set mValueMap = vm
     Set mRowCountByKey = rowByKey
+    mIndexesBuilt = True
 End Sub
 
 ' 값 지도에 표시 키를 vbNullChar로 이어붙인다.

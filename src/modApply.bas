@@ -47,10 +47,10 @@ Public Function ApplyDisplays(ByVal rngFilterArea As Range, ByVal lField As Long
         ' 등호 스칼라 경로: 긴 항목만 1~2건 (P1: 등호는 길이 무제한)
         If Not bStack Then ResetFilters rngFilterArea
         If nLong = 1 Then
-            rngFilterArea.AutoFilter Field:=lField, Criteria1:="=" & longItems(1)
+            rngFilterArea.AutoFilter Field:=lField, Criteria1:=LiteralCriterion(longItems(1))
         Else
-            rngFilterArea.AutoFilter Field:=lField, Criteria1:="=" & longItems(1), _
-                Operator:=xlOr, Criteria2:="=" & longItems(2)
+            rngFilterArea.AutoFilter Field:=lField, Criteria1:=LiteralCriterion(longItems(1)), _
+                Operator:=xlOr, Criteria2:=LiteralCriterion(longItems(2))
         End If
         result("Mode") = "scalar"
         result("Applied") = nLong
@@ -129,6 +129,12 @@ Public Function CountVisibleRows(ByVal rngFilterArea As Range) As Long
 Fail:
     ' SpecialCells는 가시 셀 0개에서 오류를 낸다
     CountVisibleRows = 0
+End Function
+
+Private Function LiteralCriterion(ByVal text As String) As String
+    text = Replace(text, "~", "~~")
+    text = Replace(text, "*", "~*")
+    LiteralCriterion = "=" & Replace(text, "?", "~?")
 End Function
 
 Private Function ToArray(ByVal col As Collection) As Variant

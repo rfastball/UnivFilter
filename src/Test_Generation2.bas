@@ -152,6 +152,31 @@ Public Sub Test_G2_GlobalInvalidate()
     DropSheet
 End Sub
 
+' @desc 인덱스 구축 오류 후 같은 자산에서 정상 재시도가 가능한지 검증함
+Public Sub Test_G2_IndexBuildRetry()
+    Dim keys(1 To 2) As String, values As Variant
+    keys(1) = "AA": keys(2) = "AA"
+    Dim sig As New clsColSig, asset As New clsColAsset
+    sig.Init 2, values, False, "General", Nothing, False
+    asset.InitRendered keys, 0, 2, "retry", sig
+    Dim displays As clsSet, errNum As Long
+    On Error Resume Next
+    Set displays = asset.Displays
+    errNum = Err.Number
+    On Error GoTo 0
+    LogShim.AssertEq "g2_index_first_failed", True, errNum <> 0
+
+    ' 오류 원인만 제거한다. 자산을 재초기화하면 완료 플래그 결함을 숨긴다.
+    ReDim values(1 To 2, 1 To 1)
+    values(1, 1) = "AA": values(2, 1) = "AA"
+    sig.Init 2, values, False, "General", Nothing, False
+    Set displays = asset.Displays
+    LogShim.AssertEq "g2_index_retry_ready", False, displays Is Nothing
+    If displays Is Nothing Then Exit Sub
+    LogShim.AssertEq "g2_index_retry_displays", CLng(1), displays.Count
+    LogShim.AssertEq "g2_index_retry_rows", CLng(2), CLng(asset.RowCountByKey("AA"))
+End Sub
+
 Private Function PrepSheet() As Worksheet
     Dim ws As Worksheet
     On Error Resume Next

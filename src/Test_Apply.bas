@@ -137,6 +137,23 @@ Public Sub Test_AP_LongItem()
     Set info = modApply.ApplyDisplays(ws.Range("A1:A3"), 1, sel, False, False)
     LogShim.AssertEq "ap_empty_preserved", oldCriteria, CStr(ws.AutoFilter.Filters(1).Criteria1)
 
+    ws.AutoFilterMode = False
+    PutTextCol ws, Array(longVal & "*", longVal & "tail", longVal & "?", longVal & "~?", longVal & "Z")
+    sel.Add longVal & "*"
+    Set info = modApply.ApplyDisplays(ws.Range("A1:A6"), 1, sel, False, False)
+    LogShim.AssertEq "ap_long_star_literal", CLng(1), modApply.CountVisibleRows(ws.Range("A1:A6"))
+    LogShim.AssertEq "ap_long_star_selected", False, ws.Rows(2).Hidden
+    sel.Add longVal & "~?"
+    Set info = modApply.ApplyDisplays(ws.Range("A1:A6"), 1, sel, False, False)
+    LogShim.AssertEq "ap_long_pair_literal", CLng(2), modApply.CountVisibleRows(ws.Range("A1:A6"))
+    LogShim.AssertEq "ap_long_tilde_selected", False, ws.Rows(5).Hidden
+    LogShim.AssertEq "ap_long_question_hidden", True, ws.Rows(4).Hidden
+    sel.Clear
+    sel.Add longVal & "?"
+    Set info = modApply.ApplyDisplays(ws.Range("A1:A6"), 1, sel, False, False)
+    LogShim.AssertEq "ap_long_question_literal", CLng(1), modApply.CountVisibleRows(ws.Range("A1:A6"))
+    LogShim.AssertEq "ap_long_question_selected", False, ws.Rows(4).Hidden
+
     DropSheet
 End Sub
 

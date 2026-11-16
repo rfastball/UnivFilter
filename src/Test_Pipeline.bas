@@ -5,6 +5,8 @@ Attribute VB_Name = "Test_Pipeline"
 ' @depends modFilterRun, modCache, modApply, modUnivFilter, modReport, frmFilter01, clsSet, Utilities, LogShim
 Option Explicit
 
+Private Declare PtrSafe Function GetClipboardOwner Lib "user32" () As LongPtr
+
 ' 2026-07 재설계 스펙: 폼/퀵 공용 진입점의 결과 계약을 실기 시트로 고정한다.
 
 Private Const SHEET_NAME As String = "UF_PipeTest"
@@ -115,7 +117,11 @@ Public Sub Test_PL_CorrectionAndMissing()
 
     LogShim.AssertEq "pl_corr_ok", True, r("Ok")
     LogShim.AssertEq "pl_corr_inline", True, InStr(modReport.StatusLine(r), "1000 -> 1,000") > 0
-    LogShim.AssertEq "pl_corr_missing_msg", True, Len(r("MissingMessage")) > 0
+    LogShim.AssertEq "pl_corr_clipboard_text", "9999", ClipboardAPI.GetClipboardText()
+    LogShim.AssertEq "pl_corr_clipboard_owner", True, GetClipboardOwner() = CLngPtr(Application.hwnd)
+    LogShim.AssertEq "pl_corr_missing_copied", True, InStr(r("MissingMessage"), "복사되었습니다") > 0
+    LogShim.AssertEq "pl_corr_empty_copy", True, ClipboardAPI.SetClipboardText("")
+    LogShim.AssertEq "pl_corr_empty_read", "", ClipboardAPI.GetClipboardText()
     LogShim.AssertEq "pl_corr_visible", CLng(1), modApply.CountVisibleRows(Area(ws))
 Cleanup:
     Set box = Nothing: Set panel = Nothing
@@ -163,6 +169,7 @@ Public Sub Test_PL_QuickZeroNoop()
     ' 필터 미적용: 전 행 가시
     LogShim.AssertEq "pl_quick_untouched", CLng(3), modApply.CountVisibleRows(Area(ws))
     LogShim.AssertEq "pl_quick_no_automode", False, ws.AutoFilterMode
+    LogShim.AssertEq "pl_quick_no_copy_claim", False, InStr(r("MissingMessage"), "복사되었습니다") > 0
 
     DropSheet
 End Sub
@@ -238,6 +245,9 @@ Public Sub Test_PL_TargetForms()
     Dim ws As Worksheet, wb As Workbook, other As Worksheet
     Dim topForm As frmFilter01, bottomForm As frmFilter01
     Dim otherForm As frmFilter01, again As frmFilter01
+    Dim priorExclude As Boolean, priorStack As Boolean
+    priorExclude = modUnivFilter.G_LastExcludeMode: priorStack = modUnivFilter.G_LastStackMode
+    modUnivFilter.G_LastExcludeMode = False: modUnivFilter.G_LastStackMode = False
     Set ws = PrepSheet()
     On Error GoTo Fail
     ws.Range("A1").Value = "Top": ws.Range("A2").Value = "a"
@@ -255,6 +265,13 @@ Public Sub Test_PL_TargetForms()
     Set again = modUnivFilter.GetFilterForm(ws.Range("A6"))
     LogShim.AssertEq "pl_target_reuse", True, again Is bottomForm
     lo.Resize ws.Range("A5:A7")
+    ws.Range("A7").Value = "new"
+    Dim r As Object
+    Set r = bottomForm.RunCurrentFilter("new")
+    LogShim.AssertEq "pl_target_open_resize_ok", True, r("Ok")
+    LogShim.AssertEq "pl_target_open_resize_match", CLng(1), r("MatchedCount")
+    LogShim.AssertEq "pl_target_open_resize_check", "", CStr(r("SelfCheckNote"))
+    LogShim.AssertEq "pl_target_open_resize_new_row", False, ws.Rows(7).Hidden
     Set again = modUnivFilter.GetFilterForm(ws.Range("A5"))
     LogShim.AssertEq "pl_target_resize_reuse", True, again Is bottomForm
     LogShim.AssertEq "pl_target_resize_body", "$A$6:$A$7", again.InjectBodyRange.Address
@@ -269,6 +286,31 @@ Public Sub Test_PL_TargetForms()
     LogShim.AssertEq "pl_target_book", wb.Name, otherForm.InjectBodyRange.Parent.Parent.Name
     Set again = modUnivFilter.GetFilterForm(other.Range("A10"))
     LogShim.AssertEq "pl_target_outside", True, again Is Nothing
+
+    ' 다른 워크북을 활성화한 상태에서도 원래 열을 추적하고 삽입된 열을 건너뛴다.
+    modApply.ResetFilters lo.Range
+    lo.ListColumns.Add Position:=1
+    Set r = bottomForm.RunCurrentFilter("new")
+    LogShim.AssertEq "pl_target_insert_ok", True, r("Ok")
+    LogShim.AssertEq "pl_target_insert_field", CLng(2), bottomForm.InjectRelativeCol
+    LogShim.AssertEq "pl_target_insert_match", CLng(1), r("MatchedCount")
+    LogShim.AssertEq "pl_target_insert_old_hidden", True, ws.Rows(6).Hidden
+    LogShim.AssertEq "pl_target_insert_new_visible", False, ws.Rows(7).Hidden
+    modApply.ResetFilters lo.Range
+    lo.DataBodyRange.Delete
+    Set r = bottomForm.RunCurrentFilter("new")
+    LogShim.AssertEq "pl_target_empty_rejected", False, r("Ok")
+
+    other.AutoFilterMode = False
+    other.Range("A3").Value = "d"
+    other.Range("A1:A3").AutoFilter
+    Set r = otherForm.RunCurrentFilter("d")
+    LogShim.AssertEq "pl_target_autofilter_resize", CLng(1), r("MatchedCount")
+    LogShim.AssertEq "pl_target_autofilter_old_hidden", True, other.Rows(2).Hidden
+    LogShim.AssertEq "pl_target_autofilter_new_visible", False, other.Rows(3).Hidden
+    other.AutoFilterMode = False
+    Set r = otherForm.RunCurrentFilter("d")
+    LogShim.AssertEq "pl_target_removed_rejected", False, r("Ok")
 Cleanup:
     On Error Resume Next
     If Not topForm Is Nothing Then Unload topForm
@@ -278,6 +320,7 @@ Cleanup:
     Set topForm = Nothing: Set bottomForm = Nothing: Set otherForm = Nothing
     LogShim.AssertEq "pl_target_closed", priorForms, modUnivFilter.G_OpenForms.Count
     If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    modUnivFilter.G_LastExcludeMode = priorExclude: modUnivFilter.G_LastStackMode = priorStack
     On Error GoTo 0
     DropSheet
     Exit Sub

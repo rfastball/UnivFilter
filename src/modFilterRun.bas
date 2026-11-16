@@ -132,7 +132,15 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
 
     ' 누락 클립보드 복사 (포함 모드, 퀵 0건 무적용 제외)
     If Not bExclude And Not result("QuickNoMatch") Then
-        If ArrCount(outcome("Missing")) > 0 Then modReport.CopyMissing outcome("Missing")
+        If ArrCount(outcome("Missing")) > 0 Then
+            If modReport.CopyMissing(outcome("Missing")) Then
+                result("MissingMessage") = result("MissingMessage") & vbCrLf & _
+                    "(누락 목록이 클립보드에 복사되었습니다)"
+            Else
+                result("MissingMessage") = result("MissingMessage") & vbCrLf & _
+                    "(클립보드에 복사하지 못했습니다. 다시 시도해 주세요.)"
+            End If
+        End If
     End If
 
     result("Ok") = True

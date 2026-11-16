@@ -46,7 +46,6 @@ Public Function BuildMessages(ByVal outcome As Object, ByVal bExclude As Boolean
             m = m & "- " & CStr(vMissing(i)) & vbCrLf
             shown = shown + 1
         Next i
-        m = m & vbCrLf & "(누락 목록이 클립보드에 복사되었습니다)"
         msgs("MissingMessage") = m
     Else
         msgs("MissingMessage") = ""
@@ -106,14 +105,15 @@ Public Sub ClearStatusBar()
 End Sub
 
 ' @desc 누락 배열을 줄바꿈 목록으로 클립보드에 복사함
-Public Sub CopyMissing(ByVal vMissing As Variant)
-    If ArrCount(vMissing) = 0 Then Exit Sub
+Public Function CopyMissing(ByVal vMissing As Variant) As Boolean
+    If ArrCount(vMissing) = 0 Then Exit Function
     Dim s As String
     s = Join(vMissing, vbCrLf)
-    If Not ClipboardAPI.SetClipboardText(s) Then
+    CopyMissing = ClipboardAPI.SetClipboardText(s)
+    If Not CopyMissing Then
         Log "CopyMissing: 클립보드 복사 실패", lvlWarning
     End If
-End Sub
+End Function
 
 Private Function ArrCount(ByVal v As Variant) As Long
     If Not IsArray(v) Then Exit Function

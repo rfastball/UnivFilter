@@ -42,6 +42,7 @@ Public InjectRelativeCol As Long    ' 필터 영역 내에서의 상대적 열 �
 ' 내부 데이터 처리 범위 (자산은 파이프라인이 실행 시점에 캐시에서 취득)
 Private m_rngBody As Range           ' 데이터 본문 범위 (분석 대상)
 Private m_rngFilterArea As Range     ' 필터가 실제로 적용될 영역
+Private m_rngHeader As Range         ' 폼을 연 열의 헤더 위치, 적용 직전 범위 갱신 기준
 
 ' ==============================================================================
 ' [Data Injection] 외부 데이터 주입 프로퍼티
@@ -49,6 +50,7 @@ Private m_rngFilterArea As Range     ' 필터가 실제로 적용될 영역
 ' 분석용 본문 범위 주입
 Public Property Set InjectBodyRange(ByVal rng As Range)
     Set m_rngBody = rng
+    Set m_rngHeader = rng.Cells(1, 1).Offset(-1, 0)
     Log "Property Set InjectBodyRange: " & rng.Address(False, False), lvlDebug
 End Property
 
@@ -114,6 +116,7 @@ Private Sub UserForm_Terminate()
 
     Set m_rngBody = Nothing
     Set m_rngFilterArea = Nothing
+    Set m_rngHeader = Nothing
 
     ' 폼이 닫힌 후 워크시트나 다른 폼으로 포커스 복원 (Focus API 활용)
     Dim frm As Object
@@ -156,14 +159,7 @@ Private Sub btnApply_Click()
 
     ' 4. 파이프라인 실행 (위임)
     Dim result As Object
-    Set result = modFilterRun.RunFilter( _
-                        m_rngBody, _
-                        m_rngFilterArea, _
-                        InjectRelativeCol, _
-                        sInputTxt, _
-                        pIsExcludeMode, _
-                        pIsStackMode, _
-                        pIsPartialMatch, bValueCorrection:=G_ValueCorrection)
+    Set result = RunCurrentFilter(sInputTxt)
 
     lblInfo.Caption = oldCaption
 
@@ -201,6 +197,23 @@ Private Sub btnApply_Click()
 ErrorHandler:
     MsgBox "Critical Error: " & Err.Description, vbCritical
 End Sub
+
+' @desc 원래 대상 열의 현재 범위를 해석하고 폼 설정으로 필터를 실행함
+Public Function RunCurrentFilter(ByVal inputText As String) As Object
+    On Error GoTo InvalidTarget
+    If Not modUnivFilter.ResolveFilterTarget(m_rngHeader, m_rngBody, m_rngFilterArea, _
+                                             InjectRelativeCol, InjectHeaderName) Then GoTo InvalidTarget
+    On Error GoTo 0
+    Set RunCurrentFilter = modFilterRun.RunFilter(m_rngBody, m_rngFilterArea, InjectRelativeCol, _
+        inputText, pIsExcludeMode, pIsStackMode, pIsPartialMatch, bValueCorrection:=G_ValueCorrection)
+    Exit Function
+InvalidTarget:
+    Dim result As Object
+    Set result = CreateObject("Scripting.Dictionary")
+    result("Ok") = False
+    result("ErrMsg") = "대상 표가 없거나 비어 있습니다. 대상 열에서 필터 창을 다시 열어 주세요."
+    Set RunCurrentFilter = result
+End Function
 
 Private Sub btnCancel_Click()
     Log "btnCancel_Click: 취소 버튼 클릭", lvlInfo
@@ -454,10 +467,10 @@ Private Sub RunGlobalShortcuts(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shi
     ' 2. [F1 ~ F4] 필터 모드 변경 / [F5] 실행
     ' -----------------------------------------------------------
     Select Case KeyCode
-        Case vbKeyF1: pIsExcludeMode = False: UpdateUI: KeyCode = 0
-        Case vbKeyF2: pIsExcludeMode = True:  UpdateUI: KeyCode = 0
-        Case vbKeyF3: pIsStackMode = False:   UpdateUI: KeyCode = 0
-        Case vbKeyF4: pIsStackMode = True:    UpdateUI: KeyCode = 0
+        Case vbKeyF1: lblModeIn_Click: KeyCode = 0
+        Case vbKeyF2: lblModeOut_Click: KeyCode = 0
+        Case vbKeyF3: lblReset_Click: KeyCode = 0
+        Case vbKeyF4: lblStack_Click: KeyCode = 0
         Case vbKeyF5: Call btnApply_Click:              KeyCode = 0
         Case vbKeyF6: ToggleValueCorrection: KeyCode = 0
         Case vbKeyF7: ToggleOptions: KeyCode = 0
