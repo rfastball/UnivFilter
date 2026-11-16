@@ -118,7 +118,13 @@ Public Function CountVisibleRows(ByVal rngFilterArea As Range) As Long
     Set body = rngFilterArea.Parent.Range( _
         rngFilterArea.Cells(2, 1), _
         rngFilterArea.Cells(rngFilterArea.Rows.Count, 1))
-    CountVisibleRows = body.SpecialCells(xlCellTypeVisible).Count
+    Dim lo As ListObject
+    Set lo = rngFilterArea.ListObject
+    If Not lo Is Nothing Then
+        If lo.ShowTotals Then Set body = Application.Intersect(body, lo.DataBodyRange)
+    End If
+    ' 본문이 한 셀이면 SpecialCells가 범위를 확장하므로 본문과 다시 교차한다.
+    CountVisibleRows = Application.Intersect(body, body.SpecialCells(xlCellTypeVisible)).Count
     Exit Function
 Fail:
     ' SpecialCells는 가시 셀 0개에서 오류를 낸다

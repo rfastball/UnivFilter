@@ -28,6 +28,47 @@ Public Sub Test_PL_IncludeBasic()
     DropSheet
 End Sub
 
+' @desc 합계 행을 유지하면서 본문 행수만 검증하고 잘못된 경고를 내지 않는지 확인함
+Public Sub Test_PL_TotalsRows()
+    Dim ws As Worksheet, lo As ListObject, bodyRange As Range, filterRange As Range
+    Dim field As Long, header As String, scenario As Long, raw As String
+    Dim excludeMode As Boolean, expected As Long, r As Object, filterAddress As String
+    Set ws = PrepSheet()
+    On Error GoTo Fail
+    PutNumberCol ws
+    Set lo = ws.ListObjects.Add(xlSrcRange, Area(ws), , xlYes)
+    For scenario = 0 To 5
+        lo.ShowTotals = (scenario > 0)
+        If lo.ShowTotals Then lo.ListColumns(1).TotalsCalculation = xlTotalsCalculationSum
+        modApply.ResetFilters lo.Range
+        If scenario = 4 Then
+            lo.ListRows(3).Delete
+            lo.ListRows(2).Delete
+        End If
+        raw = "1,000"
+        excludeMode = (scenario = 2 Or scenario = 3 Or scenario = 5)
+        expected = 1
+        If scenario = 2 Then expected = 2
+        If scenario = 3 Then raw = "1,000" & vbLf & "2,000" & vbLf & "3,000"
+        If scenario = 3 Or scenario = 5 Then expected = 0
+        If Not modUnivFilter.ResolveFilterTarget(lo.HeaderRowRange.Cells(1, 1), _
+                bodyRange, filterRange, field, header) Then Err.Raise 5
+        filterAddress = filterRange.Address
+        Set r = modFilterRun.RunFilter(bodyRange, filterRange, field, raw, excludeMode, False, False)
+        LogShim.AssertEq "pl_totals_ok_" & scenario, True, r("Ok")
+        LogShim.AssertEq "pl_totals_rows_" & scenario, expected, modApply.CountVisibleRows(filterRange)
+        LogShim.AssertEq "pl_totals_quiet_" & scenario, "", CStr(r("SelfCheckNote"))
+        LogShim.AssertEq "pl_totals_range_" & scenario, filterAddress, lo.AutoFilter.Range.Address
+        If lo.ShowTotals Then LogShim.AssertEq "pl_totals_kept_" & scenario, False, lo.TotalsRowRange.EntireRow.Hidden
+    Next scenario
+Cleanup:
+    DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "pl_totals_error", "", Err.Description
+    Resume Cleanup
+End Sub
+
 ' @desc 값 브리지 자동보정과 누락 분리를 검증함
 Public Sub Test_PL_CorrectionAndMissing()
     Dim ws As Worksheet
