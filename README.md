@@ -2,7 +2,7 @@
 
 복사한 고객 코드나 품목 번호를 한 번에 찾는 Windows용 Excel 추가 기능입니다. 찾을 값들을 복사하고 표의 대상 열에서 **Ctrl + Shift + Q**를 누르면 일치하는 행만 남습니다.
 
-[최신 버전 다운로드](https://github.com/rfastball/UnivFilter/releases/latest) · [설치](#설치) · [퀵 필터 사용법](#퀵-필터-사용법) · [필터 설정](#필터-설정)
+[최신 버전 다운로드](https://github.com/rfastball/UnivFilter/releases/latest) · [사용 설명서 다운로드 (PDF, 3쪽)](https://github.com/rfastball/UnivFilter/raw/refs/heads/main/output/pdf/UnivFilter-guide-ko.pdf) · [설치](#설치) · [퀵 필터 사용법](#퀵-필터-사용법) · [필터 설정](#필터-설정)
 
 ## 설치
 
