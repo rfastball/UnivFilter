@@ -115,7 +115,7 @@ Public Sub Test_PL_CorrectionAndMissing()
     Dim missingText As String
     missingText = "9999" & vbCrLf & Chr$(34) & "없는" & vbLf & "값" & Chr$(34)
     Set r = modFilterRun.RunFilter(Body(ws), Area(ws), 1, _
-                                   "1000" & vbCrLf & missingText, False, False, False, bValueCorrection:=True)
+                                   "1000" & vbCrLf & missingText, False, False, False, bValueCorrection:=True, keepCellBreaks:=True)
 
     LogShim.AssertEq "pl_corr_ok", True, r("Ok")
     LogShim.AssertEq "pl_corr_inline", True, InStr(modReport.StatusLine(r), "1000 -> 1,000") > 0
@@ -179,8 +179,13 @@ End Sub
 ' @desc 퀵 모드 정상 매칭 즉시 적용을 검증함
 Public Sub Test_PL_QuickHit()
     Dim ws As Worksheet
+    Dim priorSetting As Boolean, frm As frmFilter01
+    priorSetting = modUnivFilter.G_KeepCellBreaks
     Set ws = PrepSheet()
+    On Error GoTo Fail
+    modUnivFilter.G_KeepCellBreaks = False
     PutNumberCol ws
+    Area(ws).AutoFilter
     ws.Range("A3").Value2 = "첫 줄" & vbLf & "둘째 줄"
     ws.Range("A4").Value2 = "둘째 줄"
     ws.Range("A3").Copy
@@ -188,14 +193,30 @@ Public Sub Test_PL_QuickHit()
     Application.CutCopyMode = False
 
     Dim r As Object
+    Set frm = New frmFilter01
+    Set frm.InjectBodyRange = Body(ws)
+    Set frm.InjectFilterArea = Area(ws)
+    LogShim.AssertEq "pl_cellbreak_unchecked", "", frm.Controls("lblCellBreakSwitch").Caption
+    frm.ToggleCellBreaks
+    Set r = frm.RunCurrentFilter(raw)
+    LogShim.AssertEq "pl_cellbreak_form_hit", CLng(1), CLng(r("MatchedCount"))
     Set r = modFilterRun.RunQuickFilter(Body(ws), Area(ws), 1, raw)
 
     LogShim.AssertEq "pl_quickhit_ok", True, r("Ok")
     LogShim.AssertEq "pl_quickhit_nomatch_false", False, r("QuickNoMatch")
     LogShim.AssertEq "pl_quickhit_visible", CLng(1), modApply.CountVisibleRows(Area(ws))
     LogShim.AssertEq "pl_quickhit_multiline_row", False, ws.Rows(3).Hidden
-
+    frm.ToggleCellBreaks
+    Set r = modFilterRun.RunQuickFilter(Body(ws), Area(ws), 1, raw)
+    LogShim.AssertEq "pl_quickhit_option_off", True, r("QuickNoMatch")
+Cleanup:
+    If Not frm Is Nothing Then Unload frm
+    modUnivFilter.G_KeepCellBreaks = priorSetting
     DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "pl_quickhit_error", "", Err.Description
+    Resume Cleanup
 End Sub
 
 ' @desc 빈 입력의 실패 계약을 검증함

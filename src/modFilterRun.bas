@@ -14,7 +14,8 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
                           ByVal bExclude As Boolean, ByVal bStack As Boolean, _
                           ByVal bPartial As Boolean, _
                           Optional ByVal bQuickZeroNoop As Boolean = False, _
-                          Optional ByVal bValueCorrection As Boolean = False) As Object
+                          Optional ByVal bValueCorrection As Boolean = False, _
+                          Optional ByVal keepCellBreaks As Boolean = False) As Object
     Dim result As Object
     Set result = CreateObject("Scripting.Dictionary")
     result("Ok") = False
@@ -47,7 +48,7 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
 
     ' 2. 토큰화
     Dim tokens As Variant
-    tokens = modInputParse.Tokenize(sRawText)
+    tokens = modInputParse.Tokenize(sRawText, keepCellBreaks)
     If ArrCount(tokens) = 0 Then
         result("ErrMsg") = "검색할 내용이 없습니다."
         GoTo Cleanup
@@ -133,7 +134,7 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
     ' 누락 클립보드 복사 (포함 모드, 퀵 0건 무적용 제외)
     If Not bExclude And Not result("QuickNoMatch") Then
         If ArrCount(outcome("Missing")) > 0 Then
-            If modReport.CopyMissing(outcome("Missing")) Then
+            If modReport.CopyMissing(outcome("Missing"), keepCellBreaks) Then
                 result("MissingMessage") = result("MissingMessage") & vbCrLf & _
                     "(누락 목록이 클립보드에 복사되었습니다)"
             Else
@@ -175,7 +176,7 @@ End Function
 Public Function RunQuickFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, _
                                ByVal lField As Long, ByVal sClipText As String) As Object
     Set RunQuickFilter = RunFilter(rngBody, rngFilterArea, lField, sClipText, _
-                                   False, False, False, True, modUnivFilter.G_ValueCorrection)
+                                   False, False, False, True, modUnivFilter.G_ValueCorrection, modUnivFilter.G_KeepCellBreaks)
 End Function
 
 Private Function EmptyApplyInfo() As Object

@@ -28,10 +28,14 @@ Public Sub Test_IP_Tokenize()
     LogShim.AssertEq "tok_comma_not_sep", CLng(1), CLng(UBound(arr) - LBound(arr) + 1)
 
     Dim q As String: q = Chr$(34)
-    arr = modInputParse.Tokenize("앞" & vbTab & q & "첫 줄" & vbCrLf & q & q & "둘째" & q & q & vbTab & "끝" & q & vbCr & "뒤")
+    Dim raw As String
+    raw = "앞" & vbTab & q & "첫 줄" & vbCrLf & q & q & "둘째" & q & q & vbTab & "끝" & q & vbCr & "뒤"
+    arr = modInputParse.Tokenize(raw)
+    LogShim.AssertEq "tok_default_rows", "앞|" & q & "첫 줄|" & q & q & "둘째" & q & q & "|끝" & q & "|뒤", Join(arr, "|")
+    arr = modInputParse.Tokenize(raw, True)
     LogShim.AssertEq "tok_cell_boundaries", "앞|첫 줄" & vbLf & q & "둘째" & q & vbTab & "끝|뒤", Join(arr, "|")
 
-    arr = modInputParse.Tokenize(q & "이름" & q & vbLf & q & "미완성" & vbLf & "다음")
+    arr = modInputParse.Tokenize(q & "이름" & q & vbLf & q & "미완성" & vbLf & "다음", True)
     LogShim.AssertEq "tok_literal_quotes", q & "이름" & q & "|" & q & "미완성|다음", Join(arr, "|")
 End Sub
 

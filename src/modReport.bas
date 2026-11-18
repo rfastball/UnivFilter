@@ -105,8 +105,21 @@ Public Sub ClearStatusBar()
 End Sub
 
 ' @desc 누락 배열을 줄바꿈 목록으로 클립보드에 복사함
-Public Function CopyMissing(ByVal vMissing As Variant) As Boolean
+Public Function CopyMissing(ByVal vMissing As Variant, Optional ByVal keepCellBreaks As Boolean = False) As Boolean
     If ArrCount(vMissing) = 0 Then Exit Function
+    Dim copyText As String
+    If keepCellBreaks Then
+        copyText = QuotedMissingList(vMissing)
+    Else
+        copyText = Join(vMissing, vbCrLf)
+    End If
+    CopyMissing = ClipboardAPI.SetClipboardText(copyText)
+    If Not CopyMissing Then
+        Log "CopyMissing: 클립보드 복사 실패", lvlWarning
+    End If
+End Function
+
+Private Function QuotedMissingList(ByVal vMissing As Variant) As String
     Dim fields() As String, i As Long, t As String
     ReDim fields(LBound(vMissing) To UBound(vMissing))
     For i = LBound(vMissing) To UBound(vMissing)
@@ -116,10 +129,7 @@ Public Function CopyMissing(ByVal vMissing As Variant) As Boolean
         End If
         fields(i) = t
     Next i
-    CopyMissing = ClipboardAPI.SetClipboardText(Join(fields, vbCrLf))
-    If Not CopyMissing Then
-        Log "CopyMissing: 클립보드 복사 실패", lvlWarning
-    End If
+    QuotedMissingList = Join(fields, vbCrLf)
 End Function
 
 Private Function ArrCount(ByVal v As Variant) As Long

@@ -30,6 +30,8 @@ Private pIsPartialMatch As Boolean  ' True: 부분일치, False: 완전일치
 Private WithEvents lblOptions As MSForms.Label
 Private WithEvents lblCorrectionSwitch As MSForms.Label
 Private WithEvents lblCorrectionText As MSForms.Label
+Private WithEvents lblCellBreakSwitch As MSForms.Label
+Private WithEvents lblCellBreakText As MSForms.Label
 Private fraOptions As MSForms.Frame
 Private mCollapsedHeight As Single
 Private mFooterTop As Single
@@ -205,7 +207,8 @@ Public Function RunCurrentFilter(ByVal inputText As String) As Object
                                              InjectRelativeCol, InjectHeaderName) Then GoTo InvalidTarget
     On Error GoTo 0
     Set RunCurrentFilter = modFilterRun.RunFilter(m_rngBody, m_rngFilterArea, InjectRelativeCol, _
-        inputText, pIsExcludeMode, pIsStackMode, pIsPartialMatch, bValueCorrection:=G_ValueCorrection)
+        inputText, pIsExcludeMode, pIsStackMode, pIsPartialMatch, bValueCorrection:=G_ValueCorrection, _
+        keepCellBreaks:=G_KeepCellBreaks)
     Exit Function
 InvalidTarget:
     Dim result As Object
@@ -255,11 +258,18 @@ Private Sub UpdateUI()
     ' Label의 표시만 바꾸므로 값 변경 이벤트가 재진입하지 않는다.
     SetCheckStyle lblMatchSwitch, lblMatchText, pIsPartialMatch, True
     SetCheckStyle lblCorrectionSwitch, lblCorrectionText, G_ValueCorrection, Not pIsPartialMatch
+    SetCheckStyle lblCellBreakSwitch, lblCellBreakText, G_KeepCellBreaks, True
     If fraOptions.Visible Then
         lblOptions.Caption = "옵션 " & ChrW(&H25B4)
     Else
         lblOptions.Caption = "옵션 " & ChrW(&H25BE)
-        If G_ValueCorrection Then lblOptions.Caption = lblOptions.Caption & " (보정 켜짐)"
+        If G_ValueCorrection And G_KeepCellBreaks Then
+            lblOptions.Caption = lblOptions.Caption & " (2개 켜짐)"
+        ElseIf G_KeepCellBreaks Then
+            lblOptions.Caption = lblOptions.Caption & " (줄바꿈 유지)"
+        ElseIf G_ValueCorrection Then
+            lblOptions.Caption = lblOptions.Caption & " (보정 켜짐)"
+        End If
     End If
 End Sub
 
@@ -297,14 +307,7 @@ Private Sub BuildOptions()
     divider.Height = 1
     divider.BackStyle = fmBackStyleOpaque
     divider.BackColor = &HD0D0D0
-    Set lblCorrectionSwitch = AddOptionLabel("lblCorrectionSwitch", "", 0, 10, lblMatchSwitch.Width)
-    With lblCorrectionSwitch
-        .Height = lblMatchSwitch.Height
-        .Font.Name = lblMatchSwitch.Font.Name
-        .Font.Size = lblMatchSwitch.Font.Size
-        .TextAlign = lblMatchSwitch.TextAlign
-        .BackStyle = fmBackStyleOpaque
-    End With
+    Set lblCorrectionSwitch = AddOptionSwitch("lblCorrectionSwitch", 10)
     Dim textLeft As Single
     textLeft = lblMatchText.Left - lblMatchSwitch.Left
     Set lblCorrectionText = AddOptionLabel("lblCorrectionText", "숫자·날짜 자동보정", _
@@ -314,7 +317,14 @@ Private Sub BuildOptions()
         "입력과 표시가 다르면 열의 서식으로 다시 찾습니다(1000 → 1,000). " & _
         "반올림으로 다른 값도 선택될 수 있습니다. 퀵 필터에도 적용됩니다. (F6)"
     lblCorrectionSwitch.ControlTipText = lblCorrectionText.ControlTipText
-    fraOptions.Height = lblCorrectionText.Top + lblCorrectionText.Height + 4
+    Dim nextTop As Single
+    nextTop = lblCorrectionSwitch.Top + lblCorrectionSwitch.Height + 6
+    Set lblCellBreakSwitch = AddOptionSwitch("lblCellBreakSwitch", nextTop)
+    Set lblCellBreakText = AddOptionLabel("lblCellBreakText", "셀 안 줄바꿈 유지", textLeft, _
+        nextTop + lblMatchText.Top - lblMatchSwitch.Top, fraOptions.Width - textLeft)
+    lblCellBreakText.ControlTipText = "복사한 셀 안의 줄바꿈과 탭을 한 검색값에 유지합니다. 퀵 필터에도 적용됩니다. (F8)"
+    lblCellBreakSwitch.ControlTipText = lblCellBreakText.ControlTipText
+    fraOptions.Height = lblCellBreakText.Top + lblCellBreakText.Height + 4
     Set lblOptions = Me.Controls.Add("Forms.Label.1", "lblOptions", True)
     With lblOptions
         .Left = txtFilterValues.Left
@@ -329,6 +339,19 @@ Private Sub BuildOptions()
         .ControlTipText = "옵션 펼치기/접기 (F7)"
     End With
 End Sub
+
+Private Function AddOptionSwitch(ByVal name As String, ByVal top As Single) As MSForms.Label
+    Dim box As MSForms.Label
+    Set box = AddOptionLabel(name, "", 0, top, lblMatchSwitch.Width)
+    With box
+        .Height = lblMatchSwitch.Height
+        .Font.Name = lblMatchSwitch.Font.Name
+        .Font.Size = lblMatchSwitch.Font.Size
+        .TextAlign = lblMatchSwitch.TextAlign
+        .BackStyle = fmBackStyleOpaque
+    End With
+    Set AddOptionSwitch = box
+End Function
 
 Private Function AddOptionLabel(ByVal name As String, ByVal caption As String, _
                                 ByVal left As Single, ByVal top As Single, ByVal width As Single) As MSForms.Label
@@ -378,6 +401,16 @@ End Sub
 Private Sub lblOptions_Click(): ToggleOptions: End Sub
 Private Sub lblCorrectionSwitch_Click(): ToggleValueCorrection: End Sub
 Private Sub lblCorrectionText_Click(): ToggleValueCorrection: End Sub
+
+' @desc 셀 내부 줄바꿈 처리 옵션을 폼과 퀵 필터에 함께 적용함
+Public Sub ToggleCellBreaks()
+    If Not fraOptions.Visible Then ToggleOptions
+    G_KeepCellBreaks = Not G_KeepCellBreaks
+    UpdateUI
+End Sub
+
+Private Sub lblCellBreakSwitch_Click(): ToggleCellBreaks: End Sub
+Private Sub lblCellBreakText_Click(): ToggleCellBreaks: End Sub
 
 ' 공용 스타일 적용 헬퍼
 Private Sub SetLabelStyle(lbl As MSForms.Label, bgCol As Long, fontCol As Long, isBold As Boolean, borderCol As Long)
@@ -474,6 +507,7 @@ Private Sub RunGlobalShortcuts(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shi
         Case vbKeyF5: Call btnApply_Click:              KeyCode = 0
         Case vbKeyF6: ToggleValueCorrection: KeyCode = 0
         Case vbKeyF7: ToggleOptions: KeyCode = 0
+        Case vbKeyF8: ToggleCellBreaks: KeyCode = 0
     End Select
 
 End Sub

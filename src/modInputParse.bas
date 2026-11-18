@@ -5,7 +5,7 @@ Attribute VB_Name = "modInputParse"
 Option Explicit
 
 ' @desc 멀티라인 원문 받아 고유 토큰 배열 반환, 빈 입력 시 빈 배열 반환
-Public Function Tokenize(ByVal sRaw As String) As Variant
+Public Function Tokenize(ByVal sRaw As String, Optional ByVal keepCellBreaks As Boolean = False) As Variant
     Dim s As String
     s = Replace(sRaw, vbCrLf, vbLf)
     s = Replace(s, vbCr, vbLf)
@@ -22,7 +22,9 @@ Public Function Tokenize(ByVal sRaw As String) As Variant
     Do While first <= Len(s)
         boundary = InStr(first, separators, vbLf)
         closing = 0
-        If Mid$(s, first, 1) = """" Then closing = ClosingCellQuote(s, first, separators)
+        If keepCellBreaks Then
+            If Mid$(s, first, 1) = """" Then closing = ClosingCellQuote(s, first, separators)
+        End If
         If closing > 0 Then
             t = Replace(Mid$(s, first + 1, closing - first - 1), """""", """")
             boundary = closing + 1
