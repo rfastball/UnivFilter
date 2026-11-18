@@ -26,6 +26,13 @@ Public Sub Test_IP_Tokenize()
     ' 콤마는 구분자가 아니다 ("1,234"는 하나의 토큰)
     arr = modInputParse.Tokenize("1,234")
     LogShim.AssertEq "tok_comma_not_sep", CLng(1), CLng(UBound(arr) - LBound(arr) + 1)
+
+    Dim q As String: q = Chr$(34)
+    arr = modInputParse.Tokenize("앞" & vbTab & q & "첫 줄" & vbCrLf & q & q & "둘째" & q & q & vbTab & "끝" & q & vbCr & "뒤")
+    LogShim.AssertEq "tok_cell_boundaries", "앞|첫 줄" & vbLf & q & "둘째" & q & vbTab & "끝|뒤", Join(arr, "|")
+
+    arr = modInputParse.Tokenize(q & "이름" & q & vbLf & q & "미완성" & vbLf & "다음")
+    LogShim.AssertEq "tok_literal_quotes", q & "이름" & q & "|" & q & "미완성|다음", Join(arr, "|")
 End Sub
 
 ' @desc 숫자/콤마/통화/괄호음수 값 해석을 검증함

@@ -9,26 +9,51 @@ Public Function Tokenize(ByVal sRaw As String) As Variant
     Dim s As String
     s = Replace(sRaw, vbCrLf, vbLf)
     s = Replace(s, vbCr, vbLf)
-    s = Replace(s, vbTab, vbLf)
-
-    Dim parts() As String
-    parts = Split(s, vbLf)
+    ' 구분자 위치만 같은 문자열을 따로 두어 셀 안의 탭은 원문에서 읽는다.
+    Dim separators As String
+    separators = Replace(s, vbTab, vbLf) & vbLf
 
     Dim seen As Object
     Set seen = CreateObject("Scripting.Dictionary")
     seen.CompareMode = vbTextCompare
 
-    Dim i As Long, t As String
-    For i = LBound(parts) To UBound(parts)
-        t = Trim$(parts(i))
+    Dim first As Long, boundary As Long, closing As Long, t As String
+    first = 1
+    Do While first <= Len(s)
+        boundary = InStr(first, separators, vbLf)
+        closing = 0
+        If Mid$(s, first, 1) = """" Then closing = ClosingCellQuote(s, first, separators)
+        If closing > 0 Then
+            t = Replace(Mid$(s, first + 1, closing - first - 1), """""", """")
+            boundary = closing + 1
+        Else
+            t = Trim$(Mid$(s, first, boundary - first))
+        End If
         If Len(t) > 0 Then
             If Not seen.exists(t) Then
                 seen(t) = True
             End If
         End If
-    Next i
+        first = boundary + 1
+    Loop
 
     Tokenize = seen.Keys
+End Function
+
+' 개행/탭 또는 이스케이프된 따옴표가 있는 셀만 해제한다. 일반 "이름"은 원문 그대로 둔다.
+Private Function ClosingCellQuote(ByRef s As String, ByVal first As Long, ByRef separators As String) As Long
+    Dim p As Long, escaped As Boolean
+    p = InStr(first + 1, s, """")
+    Do While p > 0
+        If Mid$(s, p + 1, 1) <> """" Then
+            If Mid$(separators, p + 1, 1) = vbLf Then
+                If escaped Or InStr(first, separators, vbLf) < p Then ClosingCellQuote = p
+            End If
+            Exit Function
+        End If
+        escaped = True
+        p = InStr(p + 2, s, """")
+    Loop
 End Function
 
 ' @desc 토큰 받아 값 후보 Double 배열 반환, 해석 불가 시 빈 배열 반환

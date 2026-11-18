@@ -107,9 +107,16 @@ End Sub
 ' @desc 누락 배열을 줄바꿈 목록으로 클립보드에 복사함
 Public Function CopyMissing(ByVal vMissing As Variant) As Boolean
     If ArrCount(vMissing) = 0 Then Exit Function
-    Dim s As String
-    s = Join(vMissing, vbCrLf)
-    CopyMissing = ClipboardAPI.SetClipboardText(s)
+    Dim fields() As String, i As Long, t As String
+    ReDim fields(LBound(vMissing) To UBound(vMissing))
+    For i = LBound(vMissing) To UBound(vMissing)
+        t = CStr(vMissing(i))
+        If InStr(t, vbLf) > 0 Or InStr(t, vbCr) > 0 Or InStr(t, vbTab) > 0 Or InStr(t, """") > 0 Then
+            t = """" & Replace(t, """", """""") & """"
+        End If
+        fields(i) = t
+    Next i
+    CopyMissing = ClipboardAPI.SetClipboardText(Join(fields, vbCrLf))
     If Not CopyMissing Then
         Log "CopyMissing: 클립보드 복사 실패", lvlWarning
     End If

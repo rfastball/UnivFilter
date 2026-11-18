@@ -110,14 +110,16 @@ Public Sub Test_PL_CorrectionAndMissing()
     Set offResult = modFilterRun.RunQuickFilter(Body(ws), Area(ws), 1, "1000")
     LogShim.AssertEq "pl_corr_quick_on", CLng(1), offResult("MatchedCount")
 
-    ' "1000"은 표시에 없음 -> 값 브리지로 "1,000" 보정. "9999"는 누락.
+    ' 숫자 보정과 함께 누락된 일반 값과 여러 줄 셀을 다시 복사한다.
     Dim r As Object
+    Dim missingText As String
+    missingText = "9999" & vbCrLf & Chr$(34) & "없는" & vbLf & "값" & Chr$(34)
     Set r = modFilterRun.RunFilter(Body(ws), Area(ws), 1, _
-                                   "1000" & vbCrLf & "9999", False, False, False, bValueCorrection:=True)
+                                   "1000" & vbCrLf & missingText, False, False, False, bValueCorrection:=True)
 
     LogShim.AssertEq "pl_corr_ok", True, r("Ok")
     LogShim.AssertEq "pl_corr_inline", True, InStr(modReport.StatusLine(r), "1000 -> 1,000") > 0
-    LogShim.AssertEq "pl_corr_clipboard_text", "9999", ClipboardAPI.GetClipboardText()
+    LogShim.AssertEq "pl_corr_clipboard_text", missingText, ClipboardAPI.GetClipboardText()
     LogShim.AssertEq "pl_corr_clipboard_owner", True, GetClipboardOwner() = CLngPtr(Application.hwnd)
     LogShim.AssertEq "pl_corr_missing_copied", True, InStr(r("MissingMessage"), "복사되었습니다") > 0
     LogShim.AssertEq "pl_corr_empty_copy", True, ClipboardAPI.SetClipboardText("")
@@ -179,13 +181,19 @@ Public Sub Test_PL_QuickHit()
     Dim ws As Worksheet
     Set ws = PrepSheet()
     PutNumberCol ws
+    ws.Range("A3").Value2 = "첫 줄" & vbLf & "둘째 줄"
+    ws.Range("A4").Value2 = "둘째 줄"
+    ws.Range("A3").Copy
+    Dim raw As String: raw = ClipboardAPI.GetClipboardText()
+    Application.CutCopyMode = False
 
     Dim r As Object
-    Set r = modFilterRun.RunQuickFilter(Body(ws), Area(ws), 1, "2,000")
+    Set r = modFilterRun.RunQuickFilter(Body(ws), Area(ws), 1, raw)
 
     LogShim.AssertEq "pl_quickhit_ok", True, r("Ok")
     LogShim.AssertEq "pl_quickhit_nomatch_false", False, r("QuickNoMatch")
     LogShim.AssertEq "pl_quickhit_visible", CLng(1), modApply.CountVisibleRows(Area(ws))
+    LogShim.AssertEq "pl_quickhit_multiline_row", False, ws.Rows(3).Hidden
 
     DropSheet
 End Sub
