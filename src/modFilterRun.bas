@@ -89,7 +89,7 @@ Public Function RunFilter(ByVal rngBody As Range, ByVal rngFilterArea As Range, 
                 expectedRows = 0
             Else
                 Set applyInfo = modApply.ApplyDisplays(rngFilterArea, lField, comp, _
-                                                       asset.HasBlanks, bStack)
+                                                       asset.HasBlanks, bStack, bNoDrop:=True)
                 If matchedRows >= 0 Then
                     expectedRows = asset.RowCount - matchedRows   ' 제외 가시 = 전체 - 매칭행
                 Else

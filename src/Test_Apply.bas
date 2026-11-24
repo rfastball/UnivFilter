@@ -157,6 +157,47 @@ Public Sub Test_AP_LongItem()
     DropSheet
 End Sub
 
+' @desc 제외 모드 긴 값 탈락 거부와 스칼라 경로 유지를 검증함
+Public Sub Test_AP_ExcludeLongRefused()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    Dim longVal As String
+    longVal = String$(300, "A")
+    ws.Range("A1").Value = "H"
+    ws.Range("A2").NumberFormat = "@"
+    ws.Range("A2").Value = longVal
+    ws.Range("A3").Value = "a"
+    ws.Range("A4").Value = "b"
+
+    ws.Range("A1:A4").AutoFilter Field:=1, Criteria1:="b"
+    Dim oldCriteria As String
+    oldCriteria = CStr(ws.AutoFilter.Filters(1).Criteria1)
+
+    Dim comp As New clsSet
+    comp.Add longVal
+    comp.Add "b"
+    Dim errNum As Long
+    On Error Resume Next
+    modApply.ApplyDisplays ws.Range("A1:A4"), 1, comp, False, False, bNoDrop:=True
+    errNum = Err.Number
+    On Error GoTo 0
+    LogShim.AssertEq "ap_exlong_rejected", CLng(vbObjectError + 2102), errNum
+    LogShim.AssertEq "ap_exlong_preserved", oldCriteria, CStr(ws.AutoFilter.Filters(1).Criteria1)
+    LogShim.AssertEq "ap_exlong_long_hidden", True, ws.Rows(2).Hidden
+    LogShim.AssertEq "ap_exlong_b_visible", False, ws.Rows(4).Hidden
+
+    ' 긴 값만 남기는 경우는 등호 스칼라라 정확하므로 그대로 적용한다.
+    comp.Clear
+    comp.Add longVal
+    Dim info As Object
+    Set info = modApply.ApplyDisplays(ws.Range("A1:A4"), 1, comp, False, False, bNoDrop:=True)
+    LogShim.AssertEq "ap_exlong_scalar_mode", "scalar", CStr(info("Mode"))
+    LogShim.AssertEq "ap_exlong_scalar_visible", CLng(1), modApply.CountVisibleRows(ws.Range("A1:A4"))
+    LogShim.AssertEq "ap_exlong_scalar_row", False, ws.Rows(2).Hidden
+
+    DropSheet
+End Sub
+
 ' @desc 와일드카드/물결표 문자를 담은 값의 배열/스칼라 리터럴 적용을 검증함(P15/P15c)
 Public Sub Test_AP_WildcardLiteral()
     Dim ws As Worksheet

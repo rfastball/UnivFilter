@@ -269,6 +269,34 @@ Fail:
     Resume Cleanup
 End Sub
 
+' @desc 제외 모드에서 긴 값이 탈락하면 거부하고 기존 필터 유지함을 검증함
+Public Sub Test_PL_ExcludeLongRefused()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    On Error GoTo Fail
+    ws.Range("A1").Value = "H"
+    ws.Range("A2").Value = String$(300, "A")
+    ws.Range("A3").Value = "a"
+    ws.Range("A4").Value = "b"
+    ws.Range("A1:A4").AutoFilter Field:=1, Criteria1:="b"
+    Dim oldCriteria As String
+    oldCriteria = CStr(ws.AutoFilter.Filters(1).Criteria1)
+
+    Dim r As Object
+    Set r = modFilterRun.RunFilter(ws.Range("A2:A4"), ws.Range("A1:A4"), 1, "a", True, False, False)
+    LogShim.AssertEq "pl_exlong_not_ok", False, r("Ok")
+    LogShim.AssertEq "pl_exlong_reason", True, InStr(r("ErrMsg"), "255자") > 0
+    LogShim.AssertEq "pl_exlong_filter_preserved", oldCriteria, CStr(ws.AutoFilter.Filters(1).Criteria1)
+    LogShim.AssertEq "pl_exlong_visible", CLng(1), modApply.CountVisibleRows(ws.Range("A1:A4"))
+    LogShim.AssertEq "pl_exlong_b_visible", False, ws.Rows(4).Hidden
+Cleanup:
+    DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "pl_exlong_error", "", Err.Description
+    Resume Cleanup
+End Sub
+
 ' @desc 세로 표/통합문서별 폼 분리와 같은 대상 재사용을 검증함
 Public Sub Test_PL_TargetForms()
     Dim ws As Worksheet, wb As Workbook, other As Worksheet

@@ -15,10 +15,12 @@ Option Explicit
 Private Const MAX_ITEM_LEN As Long = 255
 Private Const NOMATCH_SENTINEL As String = "###UF_NOMATCH###"
 
+' bNoDrop: 배열 경로에서 255자 초과 항목이 탈락하면 적용 전에 거부(제외 모드 전용)
 ' @desc 표시 키 집합 적용해 결과(모드/적용수/탈락) 딕셔너리 반환, 키 없으면 무적용 반환
 Public Function ApplyDisplays(ByVal rngFilterArea As Range, ByVal lField As Long, _
                               ByVal displaySet As clsSet, ByVal bIncludeBlanks As Boolean, _
-                              ByVal bStack As Boolean) As Object
+                              ByVal bStack As Boolean, _
+                              Optional ByVal bNoDrop As Boolean = False) As Object
     Dim result As Object
     Set result = CreateObject("Scripting.Dictionary")
     result("Mode") = "none"
@@ -64,6 +66,11 @@ Public Function ApplyDisplays(ByVal rngFilterArea As Range, ByVal lField As Long
         If n = 0 Then
             Err.Raise vbObjectError + 2101, "modApply.ApplyDisplays", _
                 "255자 초과 값만 3개 이상이어서 적용할 수 없습니다. 기존 필터를 유지합니다."
+        End If
+        ' 제외 모드에서 탈락은 사용자가 고르지 않은 행을 숨긴다. "<>" 스칼라는 값 강제변환이라 대안 없음(P10/P15).
+        If bNoDrop And nLong > 0 Then
+            Err.Raise vbObjectError + 2102, "modApply.ApplyDisplays", _
+                "제외 후 남길 값 중 255자를 넘는 값이 있어 정확히 적용할 수 없습니다. 기존 필터를 유지합니다."
         End If
         ReDim arr(0 To n - 1)
         Dim i As Long
