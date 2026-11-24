@@ -36,6 +36,36 @@ Public Sub Test_CS_UniformNumber()
     DropSheet
 End Sub
 
+' @desc 숫자 렌더 서식 정규화(이스케이프/색/General/내장 로캘 서식)를 검증함
+Public Sub Test_CS_NumFmtNormalize()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.Columns("A").ColumnWidth = 40
+    Dim cs As Variant, i As Long
+    cs = Array(Array("0\0", 12), Array("0\!", 1234), Array("0""!""", 1234), Array("0\ \k\g", 12), _
+               Array("#,##0;[Red]-#,##0", -1234), Array("[Blue]General", 12.5), Array("[Color10]0", 7), _
+               Array("[DBNum1]General", 123), Array("m/d/yyyy", DateSerial(2024, 1, 3)), _
+               Array("$#,##0_);($#,##0)", -1234), Array("[Blue]General;[Red]-General", -2.5))
+    For i = 0 To UBound(cs)
+        ws.Cells(i + 1, 1).NumberFormat = cs(i)(0)
+        ws.Cells(i + 1, 1).Value2 = CDbl(cs(i)(1))
+    Next i
+
+    Dim asset As clsColAsset, rng As Range
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(UBound(cs) + 1, 1))
+    Set asset = modColumnScan.BuildAsset(rng, "T")
+    ' 이 서식들은 화면 표시 = AutoFilter 매칭 키(P17/P17b 실측) - 넓은 열의 .Text를 기대값으로 쓴다
+    For i = 0 To UBound(cs)
+        LogShim.AssertEq "cs_nf_" & i & "_" & cs(i)(0), True, asset.Displays.Contains(Trim$(ws.Cells(i + 1, 1).Text))
+    Next i
+    LogShim.AssertEq "cs_nf_escaped_zero", True, asset.Displays.Contains("120")
+    LogShim.AssertEq "cs_nf_old_strip_gone", False, asset.Displays.Contains("12")
+    ' 벌크(블록별) = 셀별 오라클, 값 레인 후보키도 같은 정규화
+    AssertEquiv "numfmt", rng
+    LogShim.AssertEq "cs_nf_valuekey", "-1,234", modColumnScan.RenderValueKey(-1234, ws.Cells(5, 1).NumberFormatLocal)
+    DropSheet
+End Sub
+
 ' @desc 텍스트 섹션 서식의 텍스트 키(표식 렌더)와 공백 정규화를 검증함
 Public Sub Test_CS_TextSectionFormat()
     Dim ws As Worksheet

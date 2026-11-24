@@ -2,7 +2,7 @@
 
 리뷰에서 나온 가설 4건을 실기(vbaloop run)로 판정한 기록. 재현: UnivFilter
 `modPerfProbe.RunReviewE2E` / `modPerfProbe.RunFingerprintBench`, AutoFilterTest
-`modProbeGaps.RunP13Only` / `RunP15Only` / `RunP14P16Only`(패치: `../reference/2026-11-24_autofiltertest_p13_p16_probe.patch`).
+`modProbeGaps.RunP13Only` / `RunP15Only` / `RunP14P16Only` / `RunP17Only`(패치: `../reference/2026-11-24_autofiltertest_p13_p17_probe.patch`).
 
 최초 실측은 이전 릴리스 v2.8.4(17d809a) 기준. 최신 릴리스 v1.0.0(3fa9956, 버전 체계 재시작 -
 감사 수정/줄바꿈 옵션 포함) 위로 rebase한 뒤 재실행해 테스트 69/69 green, e2e 판정 동일, 벤치 수치 동일(오차 내)을 확인했다.
@@ -157,6 +157,26 @@ UnivFilter 입력 토큰은 이미 `Trim$`(modInputParse)이므로 공백이 붙
 
 - 결론: 버그4는 텍스트 끝 공백에 그치지 않고 **패딩 숫자 서식 전반의 누락**이다. 키 `Trim$` 정규화가
   한 번에 해결하며, 버그1(표식 렌더)은 이 정규화 없이 단독 적용하면 회계 텍스트 열을 회귀시킨다.
+
+## P17/P17b (AutoFilterTest) - 숫자 렌더 서식 (이슈 #1)
+
+후보: 현행 `TEXT(값, 로컬 서식에서 ! 제거)` / 영문 `NumberFormat` / 로컬 + 토큰 치환. 판정은 AutoFilter 3항목 배열 매칭.
+
+| 서식 (영문 -> 로컬) | 현행 | 영문 | 로컬+치환 |
+|---|---|---|---|
+| `0\0` -> `0!0` (화면 120) | **12 (조용히 틀림)** | 120 | 120 |
+| `0\!` -> `0!!`, `0"!"` | 1234 (0건) | 1234! | 1234! |
+| `0\ \k\g` -> `0 k!g`, `0\"` -> `0!"` | TEXT 오류 | 정답 | 정답 |
+| 색 9종 `[Red]`->`[빨강]`, `[Cyan]`->`[녹청]`, `[Color1]`->`[색1]` 등 | TEXT 오류 (셀별 .Text 폴백) | 정답 | 정답 (색 이름 치환) |
+| `[DBNum1]General` -> `[DBNum1]G/표준`, `[Blue]General;[Red]-General` | `/표준`, 오류 | 정답 | 정답 (General 치환) |
+| 내장 `m/d/yyyy`(ID 14) -> `yyyy-mm-dd`, ID 22 | 정답 | **`1/3/2024` (0건)** | 정답 |
+| 내장 통화 `$#,##0_);($#,##0)` -> 원화 `#,##0;-#,##0`, 회계 ID 42/44 | 정답 | **`($1,234)` (0건)** | 정답 |
+| 날짜 로컬 토큰(`aaa`, `[$-412]AM/PM`), `%`, 분수, 지수, `[h]:mm`, `"원"` | 정답 | 정답 | 정답 |
+
+- 이슈 원안(영문 서식)은 **기각**: 내장 로캘 서식은 영문 문자열이 미국식 정의라 TEXT가 미국식으로 렌더한다.
+  짧은 날짜(ID 14)는 국내에서 가장 흔한 날짜 서식이다. 텍스트 섹션 경로도 같은 이유로 영문 서식을 버렸다.
+- 수정: `modColumnScan.NormFmt` = 로컬 서식에서 따옴표 밖 이스케이프 `!c` -> `"c"`, 로컬 색 이름 9종 -> 영문,
+  `G/표준` -> `General`. 숫자/텍스트 섹션/값 레인 후보키 모두 같은 서식. 회귀 소유자 `Test_CS_NumFmtNormalize`.
 
 ## 미결 (사용자 결정 필요)
 

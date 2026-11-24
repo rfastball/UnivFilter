@@ -7,8 +7,8 @@ Option Explicit
 
 ' 표시 키 규칙 (실측: AutoFilterTest gap-probe-findings.md P4/P6/P7/P11/P12):
 '  - 매칭 키는 폭/CF/화면 무관 캐논형 - (값, 서식)의 순수 함수 (P7/P11/P12)
-'  - 숫자 셀: TEXT(Value2, 렌더서식). * 패딩은 ! 제거 접힌형(P6), General은 영문
-'    "General" 매핑, @서식 숫자 셀은 General 규칙(P11)
+'  - 숫자 셀: TEXT(Value2, NormFmt(로컬 서식)). * 패딩은 접힌형(P6), @서식 숫자 셀은 General 규칙(P11).
+'    렌더 서식은 로컬 기준 + TEXT가 못 읽는 토큰만 치환(NormFmt, P17/P17b)
 '  - 텍스트 셀: 자기 자신(CStr). 단 텍스트 섹션 서식("ID-"@ 등)이면 표식 선행 TEXT 렌더(P13/P14,
 '    TextKey/RenderTextBlock). 모든 키는 앞뒤 ASCII 공백 제거 - AutoFilter가 무시한다(P16). 불리언: "TRUE"/"FALSE"(P12). 에러: 코드 매핑
 '    (고전 7종 영문 불변 - 신형/미지 코드는 셀별 .Text 폴백). 빈칸: 키 없음(BlankCount)
@@ -146,7 +146,7 @@ End Function
 ' 지연 우주(docs/tasks/2026-07-10_lazy_universe_design.md)의 기본 렌더 경로.
 ' keys(firstRow..lastRow)에 표시키를 채운다(빈칸은 "" + blankCount 가산).
 ' 표시 키 규칙(모듈 헤더)의 벌크판: 텍스트 셀은 자기 자신, * 패딩은 접힌형 TEXT,
-' General은 영문 "General" 매핑, ! 제거, @서식 숫자 셀은 General 렌더(P11 캐논).
+' 렌더 서식은 NormFmt(로컬 + 토큰 치환, P17), @서식 숫자 셀은 General 렌더(P11 캐논).
 ' CF 무관(TEXT는 기본서식 캐논형 - P9). 폭 무관(P7/P11 캐논형)이라 AutoFit 재독 없음.
 ' 실측 91,235행 COM 1회 = ~100ms. 에러 셀은 코드 매핑(ErrKey, P12) - 미지 코드/
 ' TEXT 빈문자열([색])만 셀별 .Text 폴백. 불리언은 "TRUE"/"FALSE"(P12).
@@ -156,14 +156,12 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
                                ByVal firstRow As Long, ByVal lastRow As Long, _
                                ByVal fmt As String, ByRef keys() As String, _
                                ByRef blankCount As Long) As Boolean
-    Dim cleanFmt As String
-    cleanFmt = Replace(fmt, "!", "")
     ' @ 블록의 숫자 셀은 General 규칙으로 표시된다(P11) - General로 벌크 렌더
     Dim fmtRender As String
     If fmt = "@" Then
         fmtRender = "General"
     Else
-        fmtRender = RenderFmt(fmt, cleanFmt, IsGeneralFmt(fmt))
+        fmtRender = NormFmt(fmt)
     End If
 
     ' 숫자 셀이 하나라도 있을 때만 벌크 렌더 1회 (텍스트/빈칸뿐이면 렌더 불요)
@@ -254,28 +252,59 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
 
     If hasText Then
         Dim fText As String
-        fText = TextSectionFmt(fmt, rTarget.Cells(firstRow, 1))
+        fText = TextSectionFmt(fmt)
         If Len(fText) > 0 Then RenderTextBlock rTarget, v2, firstRow, lastRow, fText, keys
     End If
 
     RenderBlockBulk = True
 End Function
 
-' 텍스트 섹션 서식이면 렌더용 영문 서식(! 보존)을, 아니면 "" 반환(서식별 세션 캐시).
-' 판정은 TEXT(표식 & "x") 불변 여부 - 서식 파싱 없음. 로컬 서식은 색 이름에서 TEXT 오류,
-' ! 제거는 리터럴 ! 를 잃어 영문 서식을 쓴다(P14b). 채움(*) 서식은 TEXT가 채움을 버려 불변 = 정답.
-Private Function TextSectionFmt(ByVal fmtLocal As String, ByVal c As Range) As String
+' 텍스트 섹션 서식이면 렌더 서식(NormFmt)을, 아니면 "" 반환. 판정은 TEXT(표식 & "x") 불변 여부 -
+' 서식 파싱 없음. 채움(*) 서식은 TEXT가 채움을 버려 불변 = 정답(P14).
+Private Function TextSectionFmt(ByVal fmtLocal As String) As String
+    Dim f As String
+    f = NormFmt(fmtLocal)
+    If SafeWText(TextMark() & "x", f) <> TextMark() & "x" Then TextSectionFmt = f
+End Function
+
+' 로컬 서식을 TEXT가 해석하는 형태로 어휘 정규화한다(P17/P17b, 서식별 세션 캐시).
+' 내장 로캘 서식(짧은 날짜 ID 14/22, 통화, 회계)은 영문 NumberFormat이 미국식이라 틀리므로
+' 로컬이 기준이고, TEXT가 못 읽는 토큰만 바꾼다: 따옴표 밖 이스케이프 !c -> "c",
+' 로컬 색 이름 -> 영문, G/표준 -> General. 표시 의미는 여전히 Excel 렌더가 정한다.
+' shortcut: 색/General 치환은 따옴표 안 리터럴도 바꾼다, 그런 서식이 보고되면 스캐너 안으로 옮긴다.
+Private Function NormFmt(ByVal fmtLocal As String) As String
     Static cache As Object
     If cache Is Nothing Then Set cache = CreateObject("Scripting.Dictionary")
     If cache.exists(fmtLocal) Then
-        TextSectionFmt = cache(fmtLocal)
+        NormFmt = cache(fmtLocal)
         Exit Function
     End If
-    Dim fEng As String
-    fEng = CStr(c.NumberFormat)
-    If SafeWText(TextMark() & "x", fEng) = TextMark() & "x" Then fEng = ""
-    cache(fmtLocal) = fEng
-    TextSectionFmt = fEng
+    Dim i As Long, ch As String, out As String, inQ As Boolean
+    i = 1
+    Do While i <= Len(fmtLocal)
+        ch = Mid$(fmtLocal, i, 1)
+        If ch = """" Then
+            inQ = Not inQ
+            out = out & ch
+        ElseIf ch = "!" And Not inQ And i < Len(fmtLocal) Then
+            i = i + 1
+            ch = Mid$(fmtLocal, i, 1)
+            If ch = """" Then out = out & "\""" Else out = out & """" & ch & """"
+        Else
+            out = out & ch
+        End If
+        i = i + 1
+    Loop
+    out = Replace(out, "G/표준", "General")
+    Dim pairs As Variant, j As Long
+    pairs = Array("[검정]", "[Black]", "[파랑]", "[Blue]", "[녹청]", "[Cyan]", "[녹색]", "[Green]", _
+                  "[자홍]", "[Magenta]", "[빨강]", "[Red]", "[흰색]", "[White]", "[노랑]", "[Yellow]", _
+                  "[색", "[Color")
+    For j = 0 To UBound(pairs) Step 2
+        out = Replace(out, pairs(j), pairs(j + 1))
+    Next j
+    cache(fmtLocal) = out
+    NormFmt = out
 End Function
 
 ' 텍스트 앞에 붙여 TEXT의 숫자/날짜 강제 해석을 막는 표식(사용자 정의 영역 문자, P14).
@@ -287,7 +316,7 @@ End Function
 ' 그런 셀은 AutoFilter로도 매칭 불가(P14). 표식이 이미 든 텍스트만 셀별 .Text.
 Private Function TextKey(ByVal s As String, ByVal fmtLocal As String, ByVal c As Range) As String
     Dim fText As String, rv As Variant
-    fText = TextSectionFmt(fmtLocal, c)
+    fText = TextSectionFmt(fmtLocal)
     If Len(fText) > 0 Then
         If InStr(s, TextMark()) > 0 Then
             s = c.Text
@@ -378,7 +407,7 @@ Public Function RenderValueKey(ByVal v As Double, ByVal fmt As String) As String
     If fmt = "@" Then
         RenderValueKey = SafeWText(v, "General")   ' @숫자 = General 캐논 (P11, 우주와 대칭)
     Else
-        RenderValueKey = Trim$(SafeWText(v, RenderFmt(fmt, Replace(fmt, "!", ""), IsGeneralFmt(fmt))))
+        RenderValueKey = Trim$(SafeWText(v, NormFmt(fmt)))
     End If
 End Function
 
@@ -536,7 +565,7 @@ Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
             If f = "@" Then
                 keys(i) = SafeWText(v2(i, 1), "General") ' @숫자 = General 캐논 (P11)
             Else
-                keys(i) = SafeWText(v2(i, 1), RenderFmt(f, Replace(f, "!", ""), IsGeneralFmt(f)))
+                keys(i) = SafeWText(v2(i, 1), NormFmt(f))
             End If
             If Len(keys(i)) = 0 Then keys(i) = c.Text    ' [색] 등 WText 빈문자열 폴백
             keys(i) = Trim$(keys(i))
@@ -552,19 +581,6 @@ End Function
 Private Function ResolveTarget(ByVal rngCol As Range) As Range
     If rngCol Is Nothing Then Exit Function
     Set ResolveTarget = rngCol.Columns(1)
-End Function
-
-' General 서식(로컬 "G/표준" 또는 "General")인지 확인한다. General은 TEXT가
-' 로컬 토큰을 미해석하므로 영문 "General"로 매핑해 렌더한다(RenderFmt).
-Private Function IsGeneralFmt(ByVal fmt As String) As Boolean
-    IsGeneralFmt = (fmt = "General") Or (fmt = "G/" & ChrW(&HD45C) & ChrW(&HC900))
-End Function
-
-' CF 셀 WText 렌더용 서식 결정: General은 로컬 토큰(G/표준)을 TEXT가 미해석하므로 영문 "General",
-' 그 외는 ! 제거한 서식 (P9: 공통 숫자서식은 로컬==영문이라 WText가 오라클을 재현).
-Private Function RenderFmt(ByVal localFmt As String, ByVal cleanFmt As String, _
-                           ByVal isGeneral As Boolean) As String
-    If isGeneral Then RenderFmt = "General" Else RenderFmt = cleanFmt
 End Function
 
 ' WorksheetFunction.Text를 오류 없이 시도한다(실패 시 빈 문자열).

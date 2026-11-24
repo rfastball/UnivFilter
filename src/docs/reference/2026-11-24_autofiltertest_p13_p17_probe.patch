@@ -1,9 +1,232 @@
 --- a/src/modProbeGaps.bas
 +++ b/src/modProbeGaps.bas
-@@ -192,6 +192,69 @@
+@@ -192,6 +192,292 @@
      Resume Cleanup
  End Sub
  
++' ==========================================================================
++' P17: 숫자 셀 렌더 서식 - 현행(로컬 ! 제거) vs 영문 NumberFormat vs 로컬 원본 (UnivFilter 이슈 #1)
++' ==========================================================================
++Private Function P17Text(ByVal v As Variant, ByVal f As String) As String
++    Dim rv As Variant
++    rv = Application.Text(v, f)
++    If IsError(rv) Then P17Text = "#ERR" Else P17Text = CStr(rv)
++End Function
++
++Private Function P17CurFmt(ByVal fl As String) As String
++    If fl = "G/" & ChrW(&HD45C) & ChrW(&HC900) Or fl = "General" Or fl = "@" Then
++        P17CurFmt = "General"
++    Else
++        P17CurFmt = Replace(fl, "!", "")
++    End If
++End Function
++
++Private Function P17EngFmt(ByVal fe As String) As String
++    If fe = "@" Then P17EngFmt = "General" Else P17EngFmt = fe
++End Function
++
++Private Sub P17_NumericRender()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Columns("A").ColumnWidth = 40
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++
++    Dim won As String, wonU As String, dt As Double
++    won = ChrW(&HC6D0)
++    wonU = ChrW(8361)
++    dt = DateSerial(2024, 1, 3) + TimeSerial(14, 24, 0)
++    Dim cs As New Collection
++    cs.Add Array("bang_q", "0""!""", 1234)
++    cs.Add Array("bang_bs", "0\!", 1234)
++    cs.Add Array("won_bs", "#,##0\" & won, 1234)
++    cs.Add Array("won_q", "#,##0""" & won & """", 1234)
++    cs.Add Array("red_neg", "#,##0;[Red]-#,##0", -1234)
++    cs.Add Array("red_pos", "#,##0;[Red]-#,##0", 1234)
++    cs.Add Array("red_dec", "[Red]0.00", 1.5)
++    cs.Add Array("blue_gen", "[Blue]General", 12.5)
++    cs.Add Array("color10", "[Color10]#,##0", 1234)
++    cs.Add Array("cond_red", "[Red][<0]-0;0", -5)
++    cs.Add Array("acc_plain", "_-* #,##0_-;-* #,##0_-;_-* ""-""_-;_-@_-", 1234)
++    cs.Add Array("acc_zero", "_-* #,##0_-;-* #,##0_-;_-* ""-""_-;_-@_-", 0)
++    cs.Add Array("acc_won", "_-[$" & wonU & "-412]* #,##0_-;-[$" & wonU & "-412]* #,##0_-;_-[$" & wonU & "-412]* ""-""_-;_-@_-", 1234)
++    cs.Add Array("acc_usd", "_($* #,##0_);_($* (#,##0);_($* ""-""_);_(@_)", -1234)
++    cs.Add Array("d_iso", "yyyy-mm-dd", dt)
++    cs.Add Array("d_han", "yyyy""" & ChrW(&HB144) & """ m""" & ChrW(&HC6D4) & """ d""" & ChrW(&HC77C) & """", dt)
++    cs.Add Array("d_mmm", "mmm-yy", dt)
++    cs.Add Array("d_ddd", "ddd", dt)
++    cs.Add Array("d_aaa", "aaa", dt)
++    cs.Add Array("d_lcid", "[$-412]yyyy-mm-dd aaaa", dt)
++    cs.Add Array("t_ampm", "h:mm AM/PM", dt)
++    cs.Add Array("t_lcid_ampm", "[$-412]AM/PM h:mm", dt)
++    cs.Add Array("pct", "0.0%", 0.123)
++    cs.Add Array("frac", "# ?/?", 0.5)
++    cs.Add Array("sci", "0.00E+00", 12345)
++    cs.Add Array("dbnum", "[DBNum1]General", 123)
++    cs.Add Array("npad", "#,##0_)", 1234)
++    cs.Add Array("at_num", "@", 5)
++    cs.Add Array("gen", "General", 12.5)
++    cs.Add Array("hours", "[h]:mm", 1.5)
++    Dim i As Long, r As Long, c As Range, fe As String, fl As String
++    Dim txt As String, cur As String, eng As String, loc As String
++    For i = 1 To cs.Count
++        r = i + 1
++        Set c = ws.Cells(r, 1)
++        On Error Resume Next
++        c.NumberFormat = cs(i)(1)
++        If Err.Number <> 0 Then LogShim.LogD "p17_setfmt", cs(i)(0) & " " & Err.Description
++        On Error GoTo 0
++        c.Value2 = cs(i)(2)
++        ws.Cells(r, 2).Value = cs(i)(0)
++    Next i
++    ws.Columns("A").AutoFit
++    If ws.Columns("A").ColumnWidth < 40 Then ws.Columns("A").ColumnWidth = 40
++
++    Dim lastR As Long, keys As Object, k As Variant, nm As String
++    lastR = cs.Count + 1
++    For r = 2 To lastR
++        Set c = ws.Cells(r, 1)
++        fe = c.NumberFormat
++        fl = c.NumberFormatLocal
++        txt = c.Text
++        cur = Trim$(P17Text(c.Value2, P17CurFmt(fl)))
++        eng = Trim$(P17Text(c.Value2, P17EngFmt(fe)))
++        loc = Trim$(P17Text(c.Value2, fl))
++        nm = ws.Cells(r, 2).Value
++        LogShim.LogEvent "p17_render", _
++            Array("case", "fmtEng", "fmtLocal", "text", "cur", "eng", "loc", "curEqEng", "curEqText", "engEqText"), _
++            Array(nm, fe, fl, Left$(txt, 40), cur, eng, loc, (cur = eng), (cur = Trim$(txt)), (eng = Trim$(txt)))
++        Set keys = CreateObject("Scripting.Dictionary")
++        keys("cur") = cur
++        If Not keys.exists("eng") And eng <> cur Then keys("eng") = eng
++        If Trim$(txt) <> cur And Trim$(txt) <> eng Then keys("text") = Trim$(txt)
++        If loc <> cur And loc <> eng And loc <> Trim$(txt) Then keys("loc") = loc
++        For Each k In keys.Keys
++            TryOneCriteria ws, "A1:B" & lastR, "P17", nm & "_" & k, Array(keys(k), "zz1", "zz2"), 0, Empty, 2, lastR, -1
++        Next k
++    Next r
++    ws.AutoFilterMode = False
++End Sub
++
++' P17b: 로컬 이스케이프(!)/색 이름/내장 로캘 서식(ID 14, 통화)의 TEXT 입력 정규화 후보 비교
++Private Function P17Quote(ByVal fl As String) As String
++    ' 따옴표 밖 "!c" 를 "c" 리터럴(따옴표)로 바꾼다. 따옴표 안은 그대로.
++    Dim i As Long, ch As String, out As String, inQ As Boolean
++    i = 1
++    Do While i <= Len(fl)
++        ch = Mid$(fl, i, 1)
++        If ch = """" Then
++            inQ = Not inQ
++            out = out & ch
++        ElseIf ch = "!" And Not inQ And i < Len(fl) Then
++            i = i + 1
++            If Mid$(fl, i, 1) = """" Then
++                out = out & "\"""
++            Else
++                out = out & """" & Mid$(fl, i, 1) & """"
++            End If
++        Else
++            out = out & ch
++        End If
++        i = i + 1
++    Loop
++    P17Quote = out
++End Function
++
++Private Sub P17b_Normalize()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++    Dim dt As Double
++    dt = DateSerial(2024, 1, 3)
++    Dim cs As New Collection
++    cs.Add Array("esc_dash", "0\-0", 1234)
++    cs.Add Array("esc_zero", "0\0", 12)
++    cs.Add Array("esc_bang", "0\!", 1234)
++    cs.Add Array("esc_A", "0\A", 12)
++    cs.Add Array("esc_kg", "0\ \k\g", 12)
++    cs.Add Array("esc_q", "0\""", 12)
++    cs.Add Array("id14", "m/d/yyyy", dt)
++    cs.Add Array("id22", "m/d/yyyy h:mm", dt)
++    cs.Add Array("cur5", "$#,##0_);($#,##0)", -1234)
++    cs.Add Array("cur7", "$#,##0.00_);[Red]($#,##0.00)", -1234)
++    cs.Add Array("acc44", "_($* #,##0.00_);_($* (#,##0.00);_($* ""-""??_);_(@_)", 1234)
++    cs.Add Array("c_black", "[Black]0", 1)
++    cs.Add Array("c_blue", "[Blue]0", 2)
++    cs.Add Array("c_cyan", "[Cyan]0", 3)
++    cs.Add Array("c_green", "[Green]0", 4)
++    cs.Add Array("c_magenta", "[Magenta]0", 5)
++    cs.Add Array("c_red", "[Red]0", 6)
++    cs.Add Array("c_white", "[White]0", 7)
++    cs.Add Array("c_yellow", "[Yellow]0", 8)
++    cs.Add Array("c_color1", "[Color1]0", 9)
++    cs.Add Array("c_color56", "[Color56]0", 10)
++    cs.Add Array("gen_mixed", "[Blue]General;[Red]-General", 12.5)
++
++    Dim i As Long, r As Long, c As Range
++    For i = 1 To cs.Count
++        r = i + 1
++        Set c = ws.Cells(r, 1)
++        On Error Resume Next
++        c.NumberFormat = cs(i)(1)
++        If Err.Number <> 0 Then LogShim.LogD "p17b_setfmt", cs(i)(0) & " " & Err.Description
++        On Error GoTo 0
++        c.Value2 = cs(i)(2)
++        ws.Cells(r, 2).Value = cs(i)(0)
++    Next i
++    ws.Columns("A").ColumnWidth = 40
++
++    Dim lastR As Long, fe As String, fl As String, txt As String, nm As String
++    Dim cur As String, eng As String, quo As String, keys As Object, k As Variant
++    lastR = cs.Count + 1
++    For r = 2 To lastR
++        Set c = ws.Cells(r, 1)
++        fe = c.NumberFormat
++        fl = c.NumberFormatLocal
++        txt = Trim$(c.Text)
++        nm = ws.Cells(r, 2).Value
++        cur = Trim$(P17Text(c.Value2, P17CurFmt(fl)))
++        eng = Trim$(P17Text(c.Value2, P17EngFmt(fe)))
++        quo = Trim$(P17Text(c.Value2, Replace(P17Quote(fl), "G/" & ChrW(&HD45C) & ChrW(&HC900), "General")))
++        LogShim.LogEvent "p17b", Array("case", "fmtEng", "fmtLocal", "quoted", "text", "cur", "eng", "quo"), _
++            Array(nm, fe, fl, P17Quote(fl), txt, cur, eng, quo)
++        Set keys = CreateObject("Scripting.Dictionary")
++        keys("cur") = cur
++        If eng <> cur Then keys("eng") = eng
++        If quo <> cur And quo <> eng Then keys("quo") = quo
++        If txt <> cur And txt <> eng And txt <> quo Then keys("text") = txt
++        For Each k In keys.Keys
++            TryOneCriteria ws, "A1:B" & lastR, "P17b", nm & "_" & k, Array(keys(k), "zz1", "zz2"), 0, Empty, 2, lastR, -1
++        Next k
++    Next r
++    ws.AutoFilterMode = False
++End Sub
++
++' @desc P17 숫자 셀 렌더 서식 프로브를 실행함(UnivFilter 이슈 #1 원인 판정)
++Public Sub RunP17Only()
++    Dim prevScreen As Boolean
++    prevScreen = Application.ScreenUpdating
++    On Error GoTo Fail
++    Application.ScreenUpdating = False
++    LogShim.Reset
++    Set mRows = New Collection
++    P17_NumericRender
++    P17b_Normalize
++    WriteGapReport
++    LogShim.LogEvent "gap_done", Array("rows"), Array(mRows.Count)
++Cleanup:
++    Application.ScreenUpdating = prevScreen
++    Exit Sub
++Fail:
++    LogShim.LogD "error", "RunP17Only: " & Err.Number & " " & Err.Description
++    Resume Cleanup
++End Sub
++
 +' @desc P14 표식 렌더와 P16 공백 매칭 프로브를 실행함(UnivFilter 버그1/4 설계 게이트)
 +Public Sub RunP14P16Only()
 +    Dim prevScreen As Boolean
@@ -70,7 +293,7 @@
  ' @desc P11/P12 캐논-잘림 키 프로브만 단독 실행함(UnivFilter .Text 우회 게이트 실측)
  Public Sub RunP11P12Only()
      Dim prevCalc As XlCalculation
-@@ -1171,6 +1234,487 @@
+@@ -1171,6 +1457,487 @@
  End Sub
  
  ' ==========================================================================
