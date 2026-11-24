@@ -87,6 +87,27 @@ Public Sub Test_G2_PatchTransitions()
     DropSheet
 End Sub
 
+' @desc 텍스트 섹션 열의 텍스트 편집이 증분 패치에서 표시키로 반영되는지 검증함
+Public Sub Test_G2_PatchTextSection()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.Range("A1:A2").NumberFormat = "@"
+    ws.Range("A1").Value = "abc"
+    ws.Range("A2").Value = "def"
+    ws.Range("A1:A2").NumberFormat = """ID-""@"
+
+    Dim a1 As clsColAsset, a2 As clsColAsset
+    Set a1 = modCache.GetColumnAsset(ws.Range("A1:A2"))
+    LogShim.AssertEq "g2_ts_pre", True, a1.Displays.Contains("ID-abc")
+
+    ws.Range("A1").Value = "'456 "
+    Set a2 = modCache.GetColumnAsset(ws.Range("A1:A2"))
+    LogShim.AssertEq "g2_ts_same_object", True, (a1 Is a2)
+    LogShim.AssertEq "g2_ts_patched", True, a2.Displays.Contains("ID-456")
+    LogShim.AssertEq "g2_ts_old_gone", False, a2.Displays.Contains("ID-abc")
+    DropSheet
+End Sub
+
 ' @desc 서식만 바꿔도(이벤트 미발화) 지문이 재스캔을 유발하는지 검증함(결함#3)
 Public Sub Test_G2_FormatEditRebuild()
     Dim ws As Worksheet

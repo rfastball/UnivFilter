@@ -160,8 +160,11 @@ UnivFilter 입력 토큰은 이미 `Trim$`(modInputParse)이므로 공백이 붙
 
 ## 미결 (사용자 결정 필요)
 
-1. H1 수정 방식: P14로 표식 렌더 설계가 성립함을 확인. 구현 시 반영할 점은 위 P14/P16 표 참고
-   (영문 서식 렌더, 키 `Trim$` 정규화 = 버그4 동시 수정, 300자 원소 오류는 기존 키 유지).
+1. ~~H1 수정 방식~~ 해결(버그1+버그4 동시): 텍스트 섹션 서식의 텍스트 셀은 표식 선행 TEXT 렌더
+   (영문 서식, 서식별 세션 캐시, 벌크 1회), 모든 키는 `Trim$`. 렌더 오류 셀은 원문 유지, 표식 충돌만 셀별 .Text.
+   테스트: `Test_CS_TextSectionFormat`(벌크=셀별 동치 포함), `Test_G2_PatchTextSection`, `Test_PL_DisplayKeyNormalize`.
+   비용: `RunFingerprintBench` textsec_100k 콜드 336ms (같은 텍스트의 General 열 47ms, +290ms/100k),
+   적중 경로는 동일(21.7ms). 텍스트 섹션 없는 열은 서식당 1회 판정뿐이라 변화 없음.
 2. ~~H2 수정 방식~~ 해결(명시적 거부): 제외 모드에서 여집합 배열 경로가 255자 초과 값을 탈락시키면
    필터를 건드리기 전에 `vbObjectError + 2102`로 거부하고 기존 필터를 유지한다(`ApplyDisplays bNoDrop`).
    긴 값만 1~2건인 등호 스칼라 경로는 정확하므로 그대로 적용. 테스트: `Test_AP_ExcludeLongRefused`, `Test_PL_ExcludeLongRefused`.

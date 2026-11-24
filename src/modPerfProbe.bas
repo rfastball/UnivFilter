@@ -408,6 +408,7 @@ Public Sub RunFingerprintBench()
     BenchSize "blockmix_50k", "", 50000, True
     ' 텍스트 열: ContentVec 사본 비용(BSTR 재할당)이 숫자 열보다 크게 드러나는 형태
     BenchSize "text_100k", "General", 100000, False, True
+    BenchSize "textsec_100k", """ID-""@", 100000, False, True
 
 Done:
     Utilities.OptimizedMode False

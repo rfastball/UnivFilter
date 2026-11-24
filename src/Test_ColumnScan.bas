@@ -36,6 +36,57 @@ Public Sub Test_CS_UniformNumber()
     DropSheet
 End Sub
 
+' @desc 텍스트 섹션 서식의 텍스트 키(표식 렌더)와 공백 정규화를 검증함
+Public Sub Test_CS_TextSectionFormat()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.Columns("A").ColumnWidth = 30
+    Dim mk As String
+    mk = ChrW(&HE000)
+    PutTextFmt ws, 1, "abc", """ID-""@"
+    PutTextFmt ws, 2, "123", """ID-""@"
+    PutTextFmt ws, 3, "2024-01-03", """ID-""@"
+    PutTextFmt ws, 4, "hid", ";;;"
+    PutTextFmt ws, 5, "acc", "_-* #,##0_-;-* #,##0_-;_-* ""-""_-;_-@_-"
+    PutTextFmt ws, 6, "x", """Hi!""@"
+    PutTextFmt ws, 7, "abg", "[Red]@"
+    PutTextFmt ws, 8, "abd", "@*-"
+    PutTextFmt ws, 9, " sp ", "@"
+    PutTextFmt ws, 10, mk & "q", """ID-""@"
+    ws.Range("A11").NumberFormat = "#,##0_)"
+    ws.Range("A11").Value = 1234
+    PutTextFmt ws, 12, "   ", "@"
+
+    Dim asset As clsColAsset
+    Set asset = modColumnScan.BuildAsset(ws.Range("A1:A12"), "T")
+    LogShim.AssertEq "cs_ts_display", True, asset.Displays.Contains("ID-abc")
+    LogShim.AssertEq "cs_ts_raw_gone", False, asset.Displays.Contains("abc")
+    LogShim.AssertEq "cs_ts_numlike", True, asset.Displays.Contains("ID-123")
+    LogShim.AssertEq "cs_ts_datelike", True, asset.Displays.Contains("ID-2024-01-03")
+    LogShim.AssertEq "cs_ts_hidden_empty", True, asset.Displays.Contains("")
+    LogShim.AssertEq "cs_ts_hidden_gone", False, asset.Displays.Contains("hid")
+    LogShim.AssertEq "cs_ts_acc_trimmed", True, asset.Displays.Contains("acc")
+    LogShim.AssertEq "cs_ts_bang_literal", True, asset.Displays.Contains("Hi!x")
+    LogShim.AssertEq "cs_ts_color", True, asset.Displays.Contains("abg")
+    LogShim.AssertEq "cs_ts_fill_dropped", True, asset.Displays.Contains("abd")
+    LogShim.AssertEq "cs_ts_space_trimmed", True, asset.Displays.Contains("sp")
+    LogShim.AssertEq "cs_ts_marker_collision", True, asset.Displays.Contains("ID-" & mk & "q")
+    LogShim.AssertEq "cs_ts_numpad_trimmed", True, asset.Displays.Contains("1,234")
+    LogShim.AssertEq "cs_ts_blank_count", CLng(0), asset.BlankCount
+    LogShim.AssertEq "cs_ts_empty_rows", CLng(2), CLng(asset.RowCountByKey(""))
+
+    ' 벌크(블록별) = 셀별 오라클
+    AssertEquiv "textsection", ws.Range("A1:A12")
+    DropSheet
+End Sub
+
+' 텍스트를 문자열로 넣은 뒤 서식을 건다(숫자형 텍스트 자동 변환 방지).
+Private Sub PutTextFmt(ws As Worksheet, ByVal r As Long, ByVal v As String, ByVal fmt As String)
+    ws.Cells(r, 1).NumberFormat = "@"
+    ws.Cells(r, 1).Value = v
+    ws.Cells(r, 1).NumberFormat = fmt
+End Sub
+
 ' @desc 회계(* 패딩) 서식이 접힌형 키로 렌더되는지 검증함
 Public Sub Test_CS_Accounting()
     Dim ws As Worksheet
@@ -47,8 +98,8 @@ Public Sub Test_CS_Accounting()
     Dim cleanFmt As String
     cleanFmt = Replace(ws.Range("A1").NumberFormatLocal, "!", "")
     Dim expPos As String, expZero As String
-    expPos = Application.WorksheetFunction.Text(1234, cleanFmt)
-    expZero = Application.WorksheetFunction.Text(0, cleanFmt)
+    expPos = Trim$(Application.WorksheetFunction.Text(1234, cleanFmt))   ' 앞뒤 공백은 AutoFilter가 무시(P16)
+    expZero = Trim$(Application.WorksheetFunction.Text(0, cleanFmt))
 
     Dim asset As clsColAsset
     Set asset = modColumnScan.BuildAsset(ws.Range("A1:A2"), "T")

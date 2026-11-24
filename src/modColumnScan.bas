@@ -9,7 +9,8 @@ Option Explicit
 '  - 매칭 키는 폭/CF/화면 무관 캐논형 - (값, 서식)의 순수 함수 (P7/P11/P12)
 '  - 숫자 셀: TEXT(Value2, 렌더서식). * 패딩은 ! 제거 접힌형(P6), General은 영문
 '    "General" 매핑, @서식 숫자 셀은 General 규칙(P11)
-'  - 텍스트 셀: 자기 자신(CStr). 불리언: "TRUE"/"FALSE"(P12). 에러: 코드 매핑
+'  - 텍스트 셀: 자기 자신(CStr). 단 텍스트 섹션 서식("ID-"@ 등)이면 표식 선행 TEXT 렌더(P13/P14,
+'    TextKey/RenderTextBlock). 모든 키는 앞뒤 ASCII 공백 제거 - AutoFilter가 무시한다(P16). 불리언: "TRUE"/"FALSE"(P12). 에러: 코드 매핑
 '    (고전 7종 영문 불변 - 신형/미지 코드는 셀별 .Text 폴백). 빈칸: 키 없음(BlankCount)
 '  - 셀별 .Text는 폴백에서만: 화면 프록시라 폭 잘림 + 행숨김 이력 저하(행위치 비례,
 '    ProbeTextDecay 실측)에 노출되므로 캐논 경로가 항상 우선한다
@@ -218,7 +219,7 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
         If rTwoD Then rBase = LBound(rendered, 1) Else rBase = LBound(rendered)
     End If
 
-    Dim val As Variant, rv As Variant, k As String
+    Dim val As Variant, rv As Variant, k As String, hasText As Boolean
     For i = firstRow To lastRow
         val = v2(i, 1)
         If IsEmpty(val) Then
@@ -229,7 +230,8 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
             If Len(k) = 0 Then k = rTarget.Cells(i, 1).Text   ' 신형/미지 코드만 셀별
             keys(i) = k
         ElseIf VarType(val) = vbString Then
-            keys(i) = CStr(val)                          ' 텍스트: 자기 자신 (TEXT는 날짜문자열 강제 위험)
+            keys(i) = Trim$(CStr(val))                   ' 텍스트: 자기 자신 (텍스트 섹션은 아래 RenderTextBlock)
+            hasText = True
         ElseIf VarType(val) = vbBoolean Then
             If val Then keys(i) = "TRUE" Else keys(i) = "FALSE"   ' 캐논 (P12)
         ElseIf VarType(val) = vbDouble And needRender Then
@@ -239,19 +241,101 @@ Public Function RenderBlockBulk(ByVal rTarget As Range, ByVal v2 As Variant, _
                 rv = rendered(rBase + i - firstRow)
             End If
             If IsError(rv) Then
-                keys(i) = rTarget.Cells(i, 1).Text
+                keys(i) = Trim$(rTarget.Cells(i, 1).Text)
             Else
                 k = CStr(rv)
                 If Len(k) = 0 Then k = rTarget.Cells(i, 1).Text   ' [색] 등 TEXT 빈문자열 폴백
-                keys(i) = k
+                keys(i) = Trim$(k)
             End If
         Else
             keys(i) = rTarget.Cells(i, 1).Text           ' 방어적 잔여 (Value2는 위 5형뿐)
         End If
     Next i
 
+    If hasText Then
+        Dim fText As String
+        fText = TextSectionFmt(fmt, rTarget.Cells(firstRow, 1))
+        If Len(fText) > 0 Then RenderTextBlock rTarget, v2, firstRow, lastRow, fText, keys
+    End If
+
     RenderBlockBulk = True
 End Function
+
+' 텍스트 섹션 서식이면 렌더용 영문 서식(! 보존)을, 아니면 "" 반환(서식별 세션 캐시).
+' 판정은 TEXT(표식 & "x") 불변 여부 - 서식 파싱 없음. 로컬 서식은 색 이름에서 TEXT 오류,
+' ! 제거는 리터럴 ! 를 잃어 영문 서식을 쓴다(P14b). 채움(*) 서식은 TEXT가 채움을 버려 불변 = 정답.
+Private Function TextSectionFmt(ByVal fmtLocal As String, ByVal c As Range) As String
+    Static cache As Object
+    If cache Is Nothing Then Set cache = CreateObject("Scripting.Dictionary")
+    If cache.exists(fmtLocal) Then
+        TextSectionFmt = cache(fmtLocal)
+        Exit Function
+    End If
+    Dim fEng As String
+    fEng = CStr(c.NumberFormat)
+    If SafeWText(TextMark() & "x", fEng) = TextMark() & "x" Then fEng = ""
+    cache(fmtLocal) = fEng
+    TextSectionFmt = fEng
+End Function
+
+' 텍스트 앞에 붙여 TEXT의 숫자/날짜 강제 해석을 막는 표식(사용자 정의 영역 문자, P14).
+Private Function TextMark() As String
+    TextMark = ChrW(&HE000)
+End Function
+
+' 텍스트 셀 1건의 표시키(셀별/패치 경로). 렌더 오류(255자 초과 등)는 원문 유지 -
+' 그런 셀은 AutoFilter로도 매칭 불가(P14). 표식이 이미 든 텍스트만 셀별 .Text.
+Private Function TextKey(ByVal s As String, ByVal fmtLocal As String, ByVal c As Range) As String
+    Dim fText As String, rv As Variant
+    fText = TextSectionFmt(fmtLocal, c)
+    If Len(fText) > 0 Then
+        If InStr(s, TextMark()) > 0 Then
+            s = c.Text
+        Else
+            rv = Application.Text(TextMark() & s, fText)
+            If Not IsError(rv) Then s = Replace(CStr(rv), TextMark(), "")
+        End If
+    End If
+    TextKey = Trim$(s)
+End Function
+
+' 텍스트 섹션 블록의 텍스트 셀 키를 표식 선행 배열 1회 렌더로 덮어쓴다(벌크 경로).
+Private Sub RenderTextBlock(ByVal rTarget As Range, ByVal v2 As Variant, _
+                            ByVal firstRow As Long, ByVal lastRow As Long, _
+                            ByVal fText As String, ByRef keys() As String)
+    Dim i As Long, n As Long, s As String
+    Dim rowsOf() As Long, inArr() As Variant
+    ReDim rowsOf(1 To lastRow - firstRow + 1)
+    ReDim inArr(1 To lastRow - firstRow + 1, 1 To 1)
+    For i = firstRow To lastRow
+        If VarType(v2(i, 1)) = vbString Then
+            s = v2(i, 1)
+            If InStr(s, TextMark()) > 0 Then
+                keys(i) = Trim$(rTarget.Cells(i, 1).Text)   ' 표식 충돌: 셀별
+            Else
+                n = n + 1
+                rowsOf(n) = i
+                inArr(n, 1) = TextMark() & s
+            End If
+        End If
+    Next i
+    If n = 0 Then Exit Sub
+
+    Dim out As Variant, rv As Variant, j As Long
+    out = Application.Text(inArr, fText)            ' 남는 꼬리 원소(Empty)도 렌더되나 무시
+    For j = 1 To n
+        If IsArray(out) Then
+            If ArrIs2D(out) Then
+                rv = out(LBound(out, 1) + j - 1, 1)
+            Else
+                rv = out(LBound(out) + j - 1)
+            End If
+        Else
+            rv = out
+        End If
+        If Not IsError(rv) Then keys(rowsOf(j)) = Trim$(Replace(CStr(rv), TextMark(), ""))
+    Next j
+End Sub
 
 ' 배열이 2차원인지 판정한다 (Application.Text 리프팅 반환 정규화용).
 Private Function ArrIs2D(ByRef a As Variant) As Boolean
@@ -294,7 +378,7 @@ Public Function RenderValueKey(ByVal v As Double, ByVal fmt As String) As String
     If fmt = "@" Then
         RenderValueKey = SafeWText(v, "General")   ' @숫자 = General 캐논 (P11, 우주와 대칭)
     Else
-        RenderValueKey = SafeWText(v, RenderFmt(fmt, Replace(fmt, "!", ""), IsGeneralFmt(fmt)))
+        RenderValueKey = Trim$(SafeWText(v, RenderFmt(fmt, Replace(fmt, "!", ""), IsGeneralFmt(fmt))))
     End If
 End Function
 
@@ -345,12 +429,12 @@ Public Function TryPatchAsset(ByVal asset As clsColAsset, ByVal rngCol As Range,
                 k = ErrKey(val)
                 If Len(k) = 0 Then k = rTarget.Cells(r, 1).Text
             ElseIf VarType(val) = vbString Then
-                k = CStr(val)
+                k = TextKey(CStr(val), BlockFmtForRow(newSig, r), rTarget.Cells(r, 1))
             ElseIf VarType(val) = vbBoolean Then
                 If val Then k = "TRUE" Else k = "FALSE"
             ElseIf VarType(val) = vbDouble Then
                 k = RenderValueKey(CDbl(val), BlockFmtForRow(newSig, r))
-                If Len(k) = 0 Then k = rTarget.Cells(r, 1).Text
+                If Len(k) = 0 Then k = Trim$(rTarget.Cells(r, 1).Text)
             Else
                 k = rTarget.Cells(r, 1).Text
             End If
@@ -441,7 +525,9 @@ Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
             keys(i) = ErrKey(v2(i, 1))                   ' 캐논 에러 문자열 (P12)
             If Len(keys(i)) = 0 Then keys(i) = rTarget.Cells(i, 1).Text
         ElseIf VarType(v2(i, 1)) = vbString Then
-            keys(i) = CStr(v2(i, 1))                     ' 텍스트: 자기 자신
+            Set c = rTarget.Cells(i, 1)
+            If formats Is Nothing Then f = SafeFmtLocal(c)
+            keys(i) = TextKey(CStr(v2(i, 1)), f, c)      ' 텍스트: 자기 자신 또는 텍스트 섹션 렌더
         ElseIf VarType(v2(i, 1)) = vbBoolean Then
             If v2(i, 1) Then keys(i) = "TRUE" Else keys(i) = "FALSE"   ' 캐논 (P12)
         ElseIf VarType(v2(i, 1)) = vbDouble Then
@@ -453,6 +539,7 @@ Private Function BuildPerCell(ByVal rTarget As Range, ByVal v2 As Variant, _
                 keys(i) = SafeWText(v2(i, 1), RenderFmt(f, Replace(f, "!", ""), IsGeneralFmt(f)))
             End If
             If Len(keys(i)) = 0 Then keys(i) = c.Text    ' [색] 등 WText 빈문자열 폴백
+            keys(i) = Trim$(keys(i))
         Else
             keys(i) = rTarget.Cells(i, 1).Text           ' 방어적 잔여 (Value2는 위 5형뿐)
         End If

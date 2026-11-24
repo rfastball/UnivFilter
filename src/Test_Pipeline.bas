@@ -297,6 +297,62 @@ Fail:
     Resume Cleanup
 End Sub
 
+' @desc 텍스트 섹션 키와 앞뒤 공백 동치가 실제 필터 결과와 일치함을 검증함
+Public Sub Test_PL_DisplayKeyNormalize()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    On Error GoTo Fail
+    Dim r As Object
+
+    ' 텍스트 섹션: 보이는 대로 "ID-abc"를 입력하면 2행, 원문 "abc"는 누락
+    ws.Range("A1").Value = "H"
+    ws.Range("A2:A4").NumberFormat = "@"
+    ws.Range("A2").Value = "abc"
+    ws.Range("A3").Value = "abc"
+    ws.Range("A4").Value = "zzz"
+    ws.Range("A2:A3").NumberFormat = """ID-""@"
+    ws.Range("A1:A4").AutoFilter
+    Set r = modFilterRun.RunFilter(ws.Range("A2:A4"), ws.Range("A1:A4"), 1, "ID-abc", False, False, False)
+    LogShim.AssertEq "pl_norm_ts_visible", CLng(2), modApply.CountVisibleRows(ws.Range("A1:A4"))
+    LogShim.AssertEq "pl_norm_ts_selfcheck", "", CStr(r("SelfCheckNote"))
+    Set r = modFilterRun.RunFilter(ws.Range("A2:A4"), ws.Range("A1:A4"), 1, "abc", False, False, False)
+    LogShim.AssertEq "pl_norm_ts_raw_unmatched", CLng(0), CLng(r("MatchedCount"))
+
+    ' 패딩 숫자 서식: 화면 "1,234 "에 "1,234" 입력
+    ws.AutoFilterMode = False
+    ws.Range("A2:A4").Clear
+    ws.Range("A2:A4").NumberFormat = "#,##0_)"
+    ws.Range("A2").Value = 1234
+    ws.Range("A3").Value = 5678
+    ws.Range("A4").Value = 9
+    ws.Range("A1:A4").AutoFilter
+    Set r = modFilterRun.RunFilter(ws.Range("A2:A4"), ws.Range("A1:A4"), 1, "1,234", False, False, False)
+    LogShim.AssertEq "pl_norm_npad_visible", CLng(1), modApply.CountVisibleRows(ws.Range("A1:A4"))
+    LogShim.AssertEq "pl_norm_npad_selfcheck", "", CStr(r("SelfCheckNote"))
+
+    ' 앞뒤 공백: "a", "a ", " a", "b" 에서 a 포함 3행 / 제외 1행
+    ws.AutoFilterMode = False
+    ws.Range("A2:A5").Clear
+    ws.Range("A2:A5").NumberFormat = "@"
+    ws.Range("A2").Value = "a"
+    ws.Range("A3").Value = "a "
+    ws.Range("A4").Value = " a"
+    ws.Range("A5").Value = "b"
+    ws.Range("A1:A5").AutoFilter
+    Set r = modFilterRun.RunFilter(ws.Range("A2:A5"), ws.Range("A1:A5"), 1, "a", False, False, False)
+    LogShim.AssertEq "pl_norm_sp_include", CLng(3), modApply.CountVisibleRows(ws.Range("A1:A5"))
+    LogShim.AssertEq "pl_norm_sp_include_selfcheck", "", CStr(r("SelfCheckNote"))
+    Set r = modFilterRun.RunFilter(ws.Range("A2:A5"), ws.Range("A1:A5"), 1, "a", True, False, False)
+    LogShim.AssertEq "pl_norm_sp_exclude", CLng(1), modApply.CountVisibleRows(ws.Range("A1:A5"))
+    LogShim.AssertEq "pl_norm_sp_exclude_selfcheck", "", CStr(r("SelfCheckNote"))
+Cleanup:
+    DropSheet
+    Exit Sub
+Fail:
+    LogShim.AssertEq "pl_norm_error", "", Err.Description
+    Resume Cleanup
+End Sub
+
 ' @desc 세로 표/통합문서별 폼 분리와 같은 대상 재사용을 검증함
 Public Sub Test_PL_TargetForms()
     Dim ws As Worksheet, wb As Workbook, other As Worksheet
