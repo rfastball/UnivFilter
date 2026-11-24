@@ -62,10 +62,14 @@ End Property
 ' @desc 다른 지문 받아 우주 동일 여부 반환, 병리적/불일치 시 False
 Public Function Matches(ByVal other As clsColSig) As Boolean
     If Not FormatMatches(other) Then Exit Function
-    Dim vOther As Variant
-    vOther = other.ContentVec
-    If Not VecEqual(mContentVec, vOther) Then Exit Function
+    ' 상대의 ContentVec 사본(Property Get) 대신 내 배열을 ByRef로 넘겨 대조한다.
+    If Not other.ContentEquals(mContentVec) Then Exit Function
     Matches = True
+End Function
+
+' @desc 다른 지문의 ContentVec 받아 내 ContentVec과 원소별 동일 여부 반환
+Public Function ContentEquals(ByRef vOther As Variant) As Boolean
+    ContentEquals = VecEqual(mContentVec, vOther)
 End Function
 
 ' @desc 다른 지문과 행수/서식 구조 동일 여부 반환, 병리적이면 False
@@ -128,9 +132,17 @@ Private Function VecEqual(ByRef a As Variant, ByRef b As Variant) As Boolean
     If Not IsArray(b) Then Exit Function
     If LBound(a, 1) <> LBound(b, 1) Then Exit Function
     If UBound(a, 1) <> UBound(b, 1) Then Exit Function
-    Dim i As Long
+    ' VarEq와 동치인 인라인판: 적중 경로의 지배 항이 원소당 함수 호출이었다
+    ' (RunFingerprintBench 100k 숫자 matches_same 33ms 중 사본 비용은 ~1ms).
+    Dim i As Long, t As VbVarType
     For i = LBound(a, 1) To UBound(a, 1)
-        If Not VarEq(a(i, 1), b(i, 1)) Then Exit Function
+        t = VarType(a(i, 1))
+        If t <> VarType(b(i, 1)) Then Exit Function
+        If t = vbError Then
+            If Not ErrEq(a(i, 1), b(i, 1)) Then Exit Function
+        ElseIf t <> vbEmpty Then
+            If a(i, 1) <> b(i, 1) Then Exit Function
+        End If
     Next i
     VecEqual = True
 End Function

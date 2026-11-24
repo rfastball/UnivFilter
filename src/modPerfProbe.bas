@@ -2,7 +2,7 @@ Attribute VB_Name = "modPerfProbe"
 ' SPDX-License-Identifier: MIT
 ' Copyright (c) 2026 JM - see LICENSE
 ' @desc 스캔 병목 계측 일회용 프로브 담당
-' @depends modColumnScan, modCache, modMatch, clsColSig, clsColAsset, clsSet, Utilities, LogShim
+' @depends modColumnScan, modCache, modMatch, modFilterRun, modApply, clsColSig, clsColAsset, clsSet, Utilities, LogShim
 Option Explicit
 
 Private Const SHEET_NAME As String = "UF_PerfProbe"
@@ -406,6 +406,8 @@ Public Sub RunFingerprintBench()
     BenchSize "comma_50k", "#,##0", 50000, False
     BenchSize "comma_100k", "#,##0", 100000, False
     BenchSize "blockmix_50k", "", 50000, True
+    ' 텍스트 열: ContentVec 사본 비용(BSTR 재할당)이 숫자 열보다 크게 드러나는 형태
+    BenchSize "text_100k", "General", 100000, False, True
 
 Done:
     Utilities.OptimizedMode False
@@ -415,7 +417,8 @@ End Sub
 
 ' 지정 열에서 미스(재빌드)/적중(지문+대조)/ComputeSignature/Matches 단가를 REP회 평균으로 잰다.
 Private Sub BenchSize(ByVal tag As String, ByVal numFmt As String, _
-                      ByVal nRows As Long, ByVal blockMixed As Boolean)
+                      ByVal nRows As Long, ByVal blockMixed As Boolean, _
+                      Optional ByVal textVals As Boolean = False)
     Const REP As Long = 200
     Dim ws As Worksheet
     Set ws = PrepSheet()
@@ -424,7 +427,11 @@ Private Sub BenchSize(ByVal tag As String, ByVal numFmt As String, _
     ReDim arr(1 To nRows, 1 To 1)
     Dim i As Long
     For i = 1 To nRows
-        arr(i, 1) = (i Mod 100) * 7      ' 저카디널리티(실사용 필터 열)
+        If textVals Then
+            arr(i, 1) = "거래처-" & (i Mod 100)   ' 저카디널리티 텍스트
+        Else
+            arr(i, 1) = (i Mod 100) * 7      ' 저카디널리티(실사용 필터 열)
+        End If
     Next i
     Dim rng As Range
     Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(nRows, 1))
@@ -475,13 +482,84 @@ Private Sub BenchSize(ByVal tag As String, ByVal numFmt As String, _
     BenchLog tag, "matches_same", nRows, (Timer - t0) * 1000!, REP
 
     ' 5) Matches 조기탈출(1행만 편집): 첫 원소 불일치로 즉시 이탈
-    ws.Cells(1, 1).Value = CDbl(ws.Cells(1, 1).Value) + 1
+    If textVals Then
+        ws.Cells(1, 1).Value = ws.Cells(1, 1).Value & "x"
+    Else
+        ws.Cells(1, 1).Value = CDbl(ws.Cells(1, 1).Value) + 1
+    End If
     Set s3 = modColumnScan.ComputeSignature(rng)
     t0 = Timer
     For j = 1 To REP
         b = s1.Matches(s3)
     Next j
     BenchLog tag, "matches_earlyexit", nRows, (Timer - t0) * 1000!, REP
+End Sub
+
+' @desc 리뷰 가설(텍스트섹션 서식/제외 255자/빈 표시 키)의 실제 파이프라인 결과를 로그로 기록함
+Public Sub RunReviewE2E()
+    LogShim.Reset
+    On Error GoTo Done
+    Dim ws As Worksheet
+
+    ' H1: 텍스트 셀 + 텍스트 섹션 서식 - 화면 "ID-abc", 값 "abc"
+    Set ws = PrepE2E()
+    ws.Range("A2:A3").NumberFormat = """ID-""@"
+    ws.Range("A2").Value = "abc"
+    ws.Range("A3").Value = "abc"
+    ws.Range("A4").NumberFormat = "@"
+    ws.Range("A4").Value = "zzz"
+    ws.Range("A1:A4").AutoFilter
+    E2E "h1_display_token", ws, 4, "ID-abc", False
+    E2E "h1_raw_token", ws, 4, "abc", False
+
+    ' H2: 제외 모드 + 255자 초과 값 - "a"만 제외하면 긴 값/b 2행이 보여야 한다
+    Set ws = PrepE2E()
+    ws.Range("A2:A4").NumberFormat = "@"
+    ws.Range("A2").Value = String$(300, "L")
+    ws.Range("A3").Value = "a"
+    ws.Range("A4").Value = "b"
+    ws.Range("A1:A4").AutoFilter
+    E2E "h2_exclude_a_expect2", ws, 4, "a", True
+
+    ' H3: 빈칸 아닌데 표시가 빈 셀(;;;) - "a"만 제외하면 숨김표시 숫자/b 2행이 보여야 한다
+    Set ws = PrepE2E()
+    ws.Range("A2").NumberFormat = ";;;"
+    ws.Range("A2").Value = 5
+    ws.Range("A3").Value = "a"
+    ws.Range("A4").Value = "b"
+    ws.Range("A1:A4").AutoFilter
+    E2E "h3_exclude_a_expect2", ws, 4, "a", True
+    E2E "h3_include_5", ws, 4, "5", False
+
+Done:
+    If Err.Number <> 0 Then LogShim.LogD "error", "RunReviewE2E: " & Err.Number & " " & Err.Description
+    DropSheet
+    LogShim.LogEvent "perf_done", Array("ok"), Array(Err.Number = 0)
+End Sub
+
+Private Function PrepE2E() As Worksheet
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.AutoFilterMode = False
+    ws.Cells.NumberFormat = "General"
+    ws.Cells(1, 1).Value = "H"
+    Set PrepE2E = ws
+End Function
+
+' 실제 RunFilter 1회 결과와 가시행/첫 행 표시를 기록한다.
+Private Sub E2E(ByVal tag As String, ByVal ws As Worksheet, ByVal lastRow As Long, _
+                ByVal tok As String, ByVal bExclude As Boolean)
+    Dim body As Range, area As Range, r As Object
+    Set area = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, 1))
+    Set body = ws.Range(ws.Cells(2, 1), ws.Cells(lastRow, 1))
+    modCache.ClearCache
+    Set r = modFilterRun.RunFilter(body, area, 1, tok, bExclude, False, False)
+    Dim nMiss As Long
+    If IsArray(r("Missing")) Then nMiss = UBound(r("Missing")) - LBound(r("Missing")) + 1
+    LogShim.LogEvent "e2e", _
+        Array("case", "ok", "matched", "missing", "visible", "selfcheck", "warning", "row2text", "err"), _
+        Array(tag, r("Ok"), r("MatchedCount"), nMiss, modApply.CountVisibleRows(area), _
+              r("SelfCheckNote"), r("WarningMessage"), ws.Cells(2, 1).Text, r("ErrMsg"))
 End Sub
 
 Private Sub BenchLog(ByVal tag As String, ByVal metric As String, ByVal nRows As Long, _

@@ -48,7 +48,8 @@ Public Function ComputeSignature(ByVal rngCol As Range) As clsColSig
     nRows = rTarget.Rows.Count
 
     Dim v2 As Variant
-    v2 = To2D(rTarget.Value2)
+    v2 = rTarget.Value2
+    If Not IsArray(v2) Then v2 = To2D(v2)   ' 단일 셀만 감싼다(다행 배열의 사본 회피)
 
     Dim vFmt As Variant
     vFmt = rTarget.NumberFormatLocal

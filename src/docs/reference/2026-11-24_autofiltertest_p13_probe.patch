@@ -1,0 +1,90 @@
+--- a/src/modProbeGaps.bas
++++ b/src/modProbeGaps.bas
+@@ -192,6 +192,25 @@
+     Resume Cleanup
+ End Sub
+ 
++' @desc P13 텍스트섹션/빈 표시 키 프로브만 단독 실행함(UnivFilter 리뷰 실측)
++Public Sub RunP13Only()
++    Dim prevScreen As Boolean
++    prevScreen = Application.ScreenUpdating
++    On Error GoTo Fail
++    Application.ScreenUpdating = False
++    LogShim.Reset
++    Set mRows = New Collection
++    P13_TextSectionKey
++    WriteGapReport
++    LogShim.LogEvent "gap_done", Array("rows"), Array(mRows.Count)
++Cleanup:
++    Application.ScreenUpdating = prevScreen
++    Exit Sub
++Fail:
++    LogShim.LogD "error", "RunP13Only: " & Err.Number & " " & Err.Description
++    Resume Cleanup
++End Sub
++
+ ' @desc P11/P12 캐논-잘림 키 프로브만 단독 실행함(UnivFilter .Text 우회 게이트 실측)
+ Public Sub RunP11P12Only()
+     Dim prevCalc As XlCalculation
+@@ -1171,6 +1190,61 @@
+ End Sub
+ 
+ ' ==========================================================================
++' P13: 텍스트 섹션 서식 텍스트 셀 / 표시가 빈 비빈칸 셀(;;;)의 매칭 키
++'      (UnivFilter 리뷰 2026-11-24: 텍스트 셀 키 = CStr(값) 가정 검증,
++'      빈 문자열 키 "" 배열 항목의 의미 확인)
++' ==========================================================================
++Private Sub P13_TextSectionKey()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Columns("A").ColumnWidth = 30
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++
++    PutFmt ws, 2, "abc", """ID-""@", "T_pre"
++    PutFmt ws, 3, "abc", """ID-""@", "T_pre2"
++    PutFmt ws, 4, "xyz", "0;-0;0;""[""@""]""", "T_sec4"
++    PutFmt ws, 5, "ID-abc", "@", "T_twin_disp"
++    PutFmt ws, 6, "abc", "@", "T_twin_raw"
++    PutFmt ws, 7, 5, ";;;", "N_hidden"
++    PutFmt ws, 8, "hid", ";;;", "T_hidden"
++    PutFmt ws, 9, 7, "General", "N_ctrl"
++    ws.Cells(10, 2).Value = "R_BLANK"              ' A10 빈칸
++
++    Dim r As Long, shown As String
++    For r = 2 To 9
++        shown = shown & ws.Cells(r, 2).Value & "=[" & ws.Cells(r, 1).Text & "];"
++    Next r
++    LogShim.LogEvent "gap_p13_text", Array("shown"), Array(shown)
++
++    Dim dataRange As String
++    dataRange = "A1:A10"
++    TryOneCriteria ws, dataRange, "P13", "arr_display_pre", Array("ID-abc"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_raw_pre", Array("abc"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "eq_display_pre", "=ID-abc", 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "eq_raw_pre", "=abc", 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_display_sec4", Array("[xyz]"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_raw_sec4", Array("xyz"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_hidden_num", Array("5"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_hidden_text", Array("hid"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_empty", Array(""), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_blank_eq", Array("="), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_ctrl_empty", Array("7", ""), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_ctrl_blank", Array("7", "="), 0, Empty, 2, 10, -1
++
++    ws.AutoFilterMode = False
++End Sub
++
++' 셀 1개에 서식을 먼저 걸고 값(문자열은 문자열 그대로)을 기록한다.
++Private Sub PutFmt(ws As Worksheet, r As Long, v As Variant, numFmt As String, nm As String)
++    ws.Cells(r, 1).NumberFormat = numFmt
++    ws.Cells(r, 1).Value = v
++    ws.Cells(r, 2).Value = nm
++End Sub
++
++' ==========================================================================
+ ' 공용 헬퍼
+ ' ==========================================================================
+ 
