@@ -3016,3 +3016,335 @@ Public Sub CleanupInterruptProbe()
     Application.DisplayAlerts = alerts
     modCache.ClearCache
 End Sub
+
+' 자가검증 불일치(가시 < 기대) 재현 프로브. modMatch.ExecuteScan은 토큰 원문을 AutoFilter 배열에
+' 싣고 행수는 vbTextCompare로 센다 - 두 동등성이 갈리는 문자군을 열거해 Excel 판정을 실측한다.
+' @desc 문자군별 VBA 텍스트 동등과 AutoFilter 표시를 대조하고 RunFilter 자가검증을 기록함
+Public Sub ProbeSelfCheckMismatch()
+    Const N As Long = 2000
+    Const PLAIN As Long = 20000
+    Dim cats As Variant
+    cats = Array("case", "width_alpha", "width_digit", "width_paren", "ideo_space", "kana", _
+                 "soft_hyphen", "zwsp", "hyphen", "apostrophe", "jamo", "ligature", "sharp_s", "accent")
+    Dim nCat As Long, total As Long
+    nCat = UBound(cats) + 1
+    total = nCat * N * 2 + PLAIN
+
+    Dim vals() As Variant, toks() As String
+    ReDim vals(1 To total + 1, 1 To 2)
+    ReDim toks(0 To nCat * N + PLAIN - 1)
+    vals(1, 1) = "V": vals(1, 2) = "C"
+    Dim r As Long, t As Long, c As Long, i As Long
+    r = 2
+    For c = 0 To nCat - 1
+        For i = 1 To N
+            vals(r, 1) = MismatchPair(CStr(cats(c)), i, False): vals(r, 2) = cats(c) & "|L": r = r + 1
+            vals(r, 1) = MismatchPair(CStr(cats(c)), i, True): vals(r, 2) = cats(c) & "|R": r = r + 1
+            toks(t) = MismatchPair(CStr(cats(c)), i, False): t = t + 1
+        Next i
+    Next c
+    For i = 1 To PLAIN
+        vals(r, 1) = "p" & i: vals(r, 2) = "plain|L": r = r + 1
+        toks(t) = "p" & i: t = t + 1
+    Next i
+
+    Dim wb As Workbook, ws As Worksheet, area As Range, failure As String
+    On Error GoTo Failed
+    Set wb = Workbooks.Add(xlWBATWorksheet)
+    Set ws = wb.Worksheets(1)
+    Set area = ws.Range("A1").Resize(total + 1, 2)
+    area.NumberFormat = "@"
+    area.Value = vals
+    area.AutoFilter
+
+    ' 실제 파이프라인(폼 기본값: 포함/초기화/완전일치/보정 OFF)
+    Dim res As Object
+    Set res = modFilterRun.RunFilter(ws.Range("A2").Resize(total, 1), area, 1, _
+                                     Join(toks, vbLf), False, False, False)
+    LogShim.LogEvent "selfcheck_run", _
+        Array("rows", "tokens", "ok", "err", "matched", "note", "visible"), _
+        Array(total, t, res("Ok"), res("ErrMsg"), res("MatchedCount"), res("SelfCheckNote"), _
+              modApply.CountVisibleRows(area))
+
+    ' 문자군별: VBA 동등(StrComp/Dictionary) vs Excel이 L 토큰으로 R 행을 보여주는가
+    Dim vis As Object
+    Set vis = CreateObject("Scripting.Dictionary")
+    For r = 2 To total + 1
+        If Not ws.Rows(r).Hidden Then vis(vals(r, 2)) = vis(vals(r, 2)) + 1
+    Next r
+    Dim d As Object, sL As String, sR As String
+    For c = 0 To nCat - 1
+        sL = MismatchPair(CStr(cats(c)), 7, False)
+        sR = MismatchPair(CStr(cats(c)), 7, True)
+        Set d = CreateObject("Scripting.Dictionary")
+        d.CompareMode = vbTextCompare
+        d(sL) = True
+        LogShim.LogEvent "selfcheck_cat", _
+            Array("cat", "strCompEq", "dictEq", "visL", "visR", "n", "drift"), _
+            Array(cats(c), StrComp(sL, sR, vbTextCompare) = 0, d.exists(sR), _
+                  CLng(vis(cats(c) & "|L")), CLng(vis(cats(c) & "|R")), N, _
+                  d.exists(sR) And CLng(vis(cats(c) & "|R")) < N)
+    Next c
+    LogShim.LogEvent "selfcheck_cat", Array("cat", "visL", "n"), _
+        Array("plain", CLng(vis("plain|L")), PLAIN)
+    GoTo Cleanup
+Failed:
+    failure = CStr(Err.Number) & ": " & Err.Description
+Cleanup:
+    On Error Resume Next
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    modCache.ClearCache
+    On Error GoTo 0
+    LogShim.LogEvent "selfcheck_done", Array("ok", "error"), Array(failure = "", failure)
+End Sub
+
+Private Function MismatchPair(ByVal cat As String, ByVal i As Long, ByVal bRight As Boolean) As String
+    Dim s As String
+    s = CStr(i)
+    Select Case cat
+    Case "case":        MismatchPair = IIf(bRight, "ABC", "abc") & s
+    Case "width_alpha": MismatchPair = IIf(bRight, ChrW(&HFF21), "A") & "w" & s
+    Case "width_digit": MismatchPair = "d" & IIf(bRight, ChrW(&HFF11), "1") & "_" & s
+    Case "width_paren": MismatchPair = IIf(bRight, ChrW(&HFF08) & ChrW(&HC8FC) & ChrW(&HFF09), _
+                                           "(" & ChrW(&HC8FC) & ")") & s
+    Case "ideo_space":  MismatchPair = "a" & IIf(bRight, ChrW(&H3000), " ") & "b" & s
+    Case "kana":        MismatchPair = IIf(bRight, ChrW(&H3042), ChrW(&H30A2)) & s
+    Case "soft_hyphen": MismatchPair = "s" & IIf(bRight, ChrW(&HAD), "") & "x" & s
+    Case "zwsp":        MismatchPair = "z" & IIf(bRight, ChrW(&H200B), "") & "x" & s
+    Case "hyphen":      MismatchPair = IIf(bRight, "co-op", "coop") & s
+    Case "apostrophe":  MismatchPair = IIf(bRight, "o'k", "ok") & s
+    Case "jamo":        MismatchPair = IIf(bRight, ChrW(&H1100) & ChrW(&H1161), ChrW(&HAC00)) & s
+    Case "ligature":    MismatchPair = IIf(bRight, ChrW(&HE6), "ae") & s
+    Case "sharp_s":     MismatchPair = IIf(bRight, ChrW(&HDF), "ss") & s
+    Case "accent":      MismatchPair = IIf(bRight, ChrW(&HE9), "e") & "t" & s
+    End Select
+End Function
+
+' 사용자 보고(텍스트 숫자 고유키 수만 행)의 자가검증 불일치 재현 프로브.
+' 변형별로 토큰(셀 .Text = 사용자가 복사하는 값) 행과 미끼 행을 섞어 표시 누락 문자군을 찾는다.
+' @desc 텍스트 숫자 변형별 AutoFilter 표시 누락과 규모별 자가검증 불일치를 기록함
+Public Sub ProbeTextNumberMismatch()
+    Const N As Long = 5000
+    Dim cats As Variant
+    cats = Array("txt7", "txt16", "txt20", "lead0", "dec10", "sci", "num_at", "num_at12", "num_at16")
+    Dim nCat As Long, total As Long
+    nCat = UBound(cats) + 1
+    total = nCat * N * 2
+
+    Dim vals() As Variant
+    ReDim vals(1 To total + 1, 1 To 2)
+    vals(1, 1) = "V": vals(1, 2) = "C"
+    Dim r As Long, t As Long, c As Long, i As Long
+    r = 2
+    For c = 0 To nCat - 1
+        For i = 1 To 2 * N
+            vals(r, 1) = TextNumKey(CStr(cats(c)), i)
+            vals(r, 2) = cats(c) & IIf(i <= N, "|T", "|D")
+            r = r + 1
+        Next i
+    Next c
+
+    Dim wb As Workbook, ws As Worksheet, area As Range, failure As String
+    On Error GoTo Failed
+    Set wb = Workbooks.Add(xlWBATWorksheet)
+    Set ws = wb.Worksheets(1)
+    Set area = ws.Range("A1").Resize(total + 1, 2)
+    area.NumberFormat = "@"
+    area.Value = vals                       ' 문자열은 텍스트, Double은 @서식 안의 숫자로 저장
+    ws.Columns(1).AutoFit
+
+    Dim toks() As String
+    ReDim toks(0 To nCat * N - 1)
+    For r = 2 To total + 1
+        If Right$(vals(r, 2), 2) = "|T" Then toks(t) = ws.Cells(r, 1).Text: t = t + 1
+    Next r
+    area.AutoFilter
+
+    Dim res As Object
+    Set res = modFilterRun.RunFilter(ws.Range("A2").Resize(total, 1), area, 1, _
+                                     Join(toks, vbLf), False, False, False)
+    LogShim.LogEvent "textnum_run", _
+        Array("rows", "tokens", "ok", "err", "matched", "note", "visible"), _
+        Array(total, t, res("Ok"), res("ErrMsg"), res("MatchedCount"), res("SelfCheckNote"), _
+              modApply.CountVisibleRows(area))
+
+    Dim vis As Object, firstHidden As Object
+    Set vis = CreateObject("Scripting.Dictionary")
+    Set firstHidden = CreateObject("Scripting.Dictionary")
+    For r = 2 To total + 1
+        If Not ws.Rows(r).Hidden Then
+            vis(vals(r, 2)) = vis(vals(r, 2)) + 1
+        ElseIf Right$(vals(r, 2), 2) = "|T" And Not firstHidden.exists(vals(r, 2)) Then
+            firstHidden(vals(r, 2)) = ws.Cells(r, 1).Text & " / " & TypeName(ws.Cells(r, 1).Value2)
+        End If
+    Next r
+    For c = 0 To nCat - 1
+        LogShim.LogEvent "textnum_cat", _
+            Array("cat", "visT", "visD", "n", "sample", "firstHidden"), _
+            Array(cats(c), CLng(vis(cats(c) & "|T")), CLng(vis(cats(c) & "|D")), N, _
+                  ws.Cells(2 + c * 2 * N, 1).Text, CStr(firstHidden(cats(c) & "|T")))
+    Next c
+    wb.Close SaveChanges:=False
+    Set wb = Nothing
+    modCache.ClearCache
+
+    ' 규모 스윕: 순수 텍스트 숫자 열(토큰 n + 미끼 n)
+    Dim nScale As Variant
+    For Each nScale In Array(5000, 20000, 50000)
+        ProbeTextNumScale CLng(nScale)
+    Next nScale
+    GoTo Cleanup
+Failed:
+    failure = CStr(Err.Number) & ": " & Err.Description
+Cleanup:
+    On Error Resume Next
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    modCache.ClearCache
+    On Error GoTo 0
+    LogShim.LogEvent "textnum_done", Array("ok", "error"), Array(failure = "", failure)
+End Sub
+
+Private Sub ProbeTextNumScale(ByVal n As Long)
+    Dim wb As Workbook, ws As Worksheet, area As Range
+    Dim vals() As Variant, toksA() As String, toksB() As String, i As Long, res As Object
+    ReDim vals(1 To 2 * n + 1, 1 To 1)
+    ReDim toksA(0 To n - 1)
+    ReDim toksB(0 To n - 1)
+    vals(1, 1) = "V"
+    For i = 1 To 2 * n
+        vals(i + 1, 1) = CStr(10000000 + i * 7)
+        If i <= n Then toksA(i - 1) = vals(i + 1, 1) Else toksB(i - n - 1) = vals(i + 1, 1)
+    Next i
+    Set wb = Workbooks.Add(xlWBATWorksheet)
+    Set ws = wb.Worksheets(1)
+    Set area = ws.Range("A1").Resize(2 * n + 1, 1)
+    area.NumberFormat = "@"
+    area.Value = vals
+    area.AutoFilter
+    Dim body As Range
+    Set body = ws.Range("A2").Resize(2 * n, 1)
+    ' 포함 -> 다시 포함(다른 키 집합) -> 제외 -> 다시 제외
+    Set res = modFilterRun.RunFilter(body, area, 1, Join(toksA, vbLf), False, False, False)
+    LogScale n, "include", res, area
+    Set res = modFilterRun.RunFilter(body, area, 1, Join(toksB, vbLf), False, False, False)
+    LogScale n, "refilter", res, area
+    Set res = modFilterRun.RunFilter(body, area, 1, Join(toksA, vbLf), True, False, False)
+    LogScale n, "exclude", res, area
+    Set res = modFilterRun.RunFilter(body, area, 1, Join(toksB, vbLf), True, False, False)
+    LogScale n, "reexclude", res, area
+    wb.Close SaveChanges:=False
+    modCache.ClearCache
+End Sub
+
+Private Sub LogScale(ByVal n As Long, ByVal mode As String, ByVal res As Object, ByVal area As Range)
+    LogShim.LogEvent "textnum_scale", Array("n", "mode", "ok", "err", "matched", "note", "visible"), _
+        Array(n, mode, res("Ok"), res("ErrMsg"), res("MatchedCount"), res("SelfCheckNote"), _
+              modApply.CountVisibleRows(area))
+End Sub
+
+Private Function TextNumKey(ByVal cat As String, ByVal i As Long) As Variant
+    Select Case cat
+    Case "txt7":     TextNumKey = CStr(1000000 + i)
+    Case "txt16":    TextNumKey = "1234567890" & Format$(i, "000000")
+    Case "txt20":    TextNumKey = "12345678901234" & Format$(i, "000000")
+    Case "lead0":    TextNumKey = "000" & Format$(i, "00000")
+    Case "dec10":    TextNumKey = CStr(i) & ".10"
+    Case "sci":      TextNumKey = CStr(i) & "E3"
+    Case "num_at":   TextNumKey = CDbl(100000 + i)
+    Case "num_at12": TextNumKey = 100000000000# + i
+    Case "num_at16": TextNumKey = 1234567890000000# + i
+    End Select
+End Function
+
+' 사용자 보고 시나리오 그대로: 고유값 5만 행(행순서 섞음)에 무작위 고유값 2만 개 필터.
+' @desc 5만행/2만토큰 조합별(텍스트/숫자, 표/자동필터, 누락, 퀵) 자가검증을 기록함
+Public Sub ProbeUserScenario()
+    Dim kind As Variant, useLo As Variant, misses As Variant, quick As Variant
+    For Each kind In Array("text", "number")
+        For Each useLo In Array(False, True)
+            For Each misses In Array(0, 2000)
+                For Each quick In Array(False, True)
+                    ProbeUserCase CStr(kind), CBool(useLo), CLng(misses), CBool(quick)
+                Next quick
+            Next misses
+        Next useLo
+    Next kind
+    LogShim.LogEvent "user_done", Array("ok"), Array(True)
+End Sub
+
+Private Sub ProbeUserCase(ByVal kind As String, ByVal useLo As Boolean, _
+                          ByVal nMiss As Long, ByVal bQuick As Boolean)
+    Const ROWS As Long = 50000
+    Const TOK As Long = 20000
+    Dim keys() As String, i As Long, j As Long, tmp As String
+    ReDim keys(1 To ROWS)
+    For i = 1 To ROWS
+        keys(i) = CStr(10000000 + i * 17 + (i Mod 7))
+    Next i
+    Rnd -1: Randomize 42
+    For i = ROWS To 2 Step -1                ' 행순서 섞기
+        j = Int(Rnd * i) + 1
+        tmp = keys(i): keys(i) = keys(j): keys(j) = tmp
+    Next i
+    Dim idx() As Long
+    ReDim idx(1 To ROWS)
+    For i = 1 To ROWS: idx(i) = i: Next i
+    Dim t As Long
+    For i = ROWS To 2 Step -1                ' 토큰용 무작위 표본
+        j = Int(Rnd * i) + 1
+        t = idx(i): idx(i) = idx(j): idx(j) = t
+    Next i
+    Dim toks() As String, inTok As Object
+    ReDim toks(0 To TOK + nMiss - 1)
+    Set inTok = CreateObject("Scripting.Dictionary")
+    For i = 1 To TOK
+        toks(i - 1) = keys(idx(i))
+        inTok(keys(idx(i))) = True
+    Next i
+    For i = 1 To nMiss
+        toks(TOK + i - 1) = CStr(90000000 + i)
+    Next i
+
+    Dim vals() As Variant
+    ReDim vals(1 To ROWS + 1, 1 To 2)
+    vals(1, 1) = "KEY": vals(1, 2) = "ETC"
+    For i = 1 To ROWS
+        If kind = "text" Then vals(i + 1, 1) = keys(i) Else vals(i + 1, 1) = CDbl(keys(i))
+        vals(i + 1, 2) = i
+    Next i
+
+    Dim wb As Workbook, ws As Worksheet, area As Range, body As Range, failure As String
+    Dim res As Object
+    On Error GoTo Failed
+    Set wb = Workbooks.Add(xlWBATWorksheet)
+    Set ws = wb.Worksheets(1)
+    Set area = ws.Range("A1").Resize(ROWS + 1, 2)
+    If kind = "text" Then area.Columns(1).NumberFormat = "@"
+    area.Value = vals
+    If useLo Then
+        Dim lo As ListObject
+        Set lo = ws.ListObjects.Add(xlSrcRange, area, , xlYes)
+        Set area = lo.Range
+        Set body = lo.DataBodyRange.Columns(1)
+    Else
+        area.AutoFilter
+        Set body = ws.Range("A2").Resize(ROWS, 1)
+    End If
+    If bQuick Then
+        Set res = modFilterRun.RunQuickFilter(body, area, 1, Join(toks, vbCrLf))
+    Else
+        Set res = modFilterRun.RunFilter(body, area, 1, Join(toks, vbLf), False, False, False)
+    End If
+    GoTo Done
+Failed:
+    failure = CStr(Err.Number) & ": " & Err.Description
+Done:
+    On Error Resume Next
+    LogShim.LogEvent "user_case", _
+        Array("kind", "listObject", "misses", "quick", "ok", "err", "matched", "note", "visible", "truth", "failure"), _
+        Array(kind, useLo, nMiss, bQuick, res("Ok"), res("ErrMsg"), res("MatchedCount"), _
+              res("SelfCheckNote"), modApply.CountVisibleRows(area), inTok.Count, failure)
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    modCache.ClearCache
+    On Error GoTo 0
+End Sub
