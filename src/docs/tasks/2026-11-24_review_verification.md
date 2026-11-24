@@ -2,7 +2,8 @@
 
 리뷰에서 나온 가설 4건을 실기(vbaloop run)로 판정한 기록. 재현: UnivFilter
 `modPerfProbe.RunReviewE2E` / `modPerfProbe.RunFingerprintBench`, AutoFilterTest
-`modProbeGaps.RunP13Only` / `RunP15Only` / `RunP14P16Only` / `RunP17Only`(패치: `../reference/2026-11-24_autofiltertest_p13_p17_probe.patch`).
+`modProbeGaps.RunP13Only` / `RunP15Only` / `RunP14P16Only` / `RunP17Only`(AutoFilterTest 브랜치 `probe/p13-p17` 커밋 2516982에 반영, 원본 패치:
+`../reference/2026-11-24_autofiltertest_p13_p17_probe.patch`).
 
 최초 실측은 이전 릴리스 v2.8.4(17d809a) 기준. 최신 릴리스 v1.0.0(3fa9956, 버전 체계 재시작 -
 감사 수정/줄바꿈 옵션 포함) 위로 rebase한 뒤 재실행해 테스트 69/69 green, e2e 판정 동일, 벤치 수치 동일(오차 내)을 확인했다.
@@ -181,7 +182,7 @@ UnivFilter 입력 토큰은 이미 `Trim$`(modInputParse)이므로 공백이 붙
 ## 미결 (사용자 결정 필요)
 
 1. ~~H1 수정 방식~~ 해결(버그1+버그4 동시): 텍스트 섹션 서식의 텍스트 셀은 표식 선행 TEXT 렌더
-   (영문 서식, 서식별 세션 캐시, 벌크 1회), 모든 키는 `Trim$`. 렌더 오류 셀은 원문 유지, 표식 충돌만 셀별 .Text.
+   (렌더 서식은 이슈 #1 수정 후 `NormFmt`(로컬 + 토큰 치환, P17), 벌크 1회), 모든 키는 `Trim$`. 렌더 오류 셀은 원문 유지, 표식 충돌만 셀별 .Text.
    테스트: `Test_CS_TextSectionFormat`(벌크=셀별 동치 포함), `Test_G2_PatchTextSection`, `Test_PL_DisplayKeyNormalize`.
    비용: `RunFingerprintBench` textsec_100k 콜드 336ms (같은 텍스트의 General 열 47ms, +290ms/100k),
    적중 경로는 동일(21.7ms). 텍스트 섹션 없는 열은 서식당 1회 판정뿐이라 변화 없음.

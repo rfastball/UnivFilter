@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AutoFilterTest 프로젝트가 측정한 사실이 이 엔진의 존재 이유다:
 - 61-포맷 전수: `../../AutoFilterTest/src/docs/reference/winner_table.csv`
-- 갭 프로브 P1~P6: `../../AutoFilterTest/src/docs/reference/gap-probe-findings.md`
+- 갭 프로브 P1~P17: `../../AutoFilterTest/src/docs/reference/gap-probe-findings.md`
 
 핵심 사실:
 1. **AutoFilter 등호/xlFilterValues는 렌더링된 표시 문자열로 매칭한다** (값 아님).
