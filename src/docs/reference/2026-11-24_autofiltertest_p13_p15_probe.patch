@@ -1,6 +1,6 @@
 --- a/src/modProbeGaps.bas
 +++ b/src/modProbeGaps.bas
-@@ -192,6 +192,44 @@
+@@ -192,6 +192,46 @@
      Resume Cleanup
  End Sub
  
@@ -13,6 +13,8 @@
 +    LogShim.Reset
 +    Set mRows = New Collection
 +    P15_NotEqualTextColumn
++    P15c_TildeRule
++    P15d_ComplementRepro
 +    WriteGapReport
 +    LogShim.LogEvent "gap_done", Array("rows"), Array(mRows.Count)
 +Cleanup:
@@ -45,7 +47,7 @@
  ' @desc P11/P12 캐논-잘림 키 프로브만 단독 실행함(UnivFilter .Text 우회 게이트 실측)
  Public Sub RunP11P12Only()
      Dim prevCalc As XlCalculation
-@@ -1171,6 +1209,147 @@
+@@ -1171,6 +1211,222 @@
  End Sub
  
  ' ==========================================================================
@@ -164,6 +166,81 @@
 +    TryOneCriteria ws, dr, "P15", "eq_a", "=a", 0, Empty, 2, 18, -1
 +    TryOneCriteria ws, dr, "P15", "arr_star_mix", Array("a~*b", "b"), 0, Empty, 2, 18, -1
 +
++    ws.AutoFilterMode = False
++End Sub
++
++' P15c: 물결표(~) 이스케이프 규칙 - 배열과 등호 스칼라 비교
++Private Sub P15c_TildeRule()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++    PutFmt ws, 2, "a~b", "@", "T_tilde"
++    PutFmt ws, 3, "a~*b", "@", "T_tilstar"
++    PutFmt ws, 4, "a*b", "@", "T_star"
++    PutFmt ws, 5, "axb", "@", "T_axb"
++    PutFmt ws, 6, "a~xb", "@", "T_tilx"
++    PutFmt ws, 7, "ab", "@", "T_ab"
++    PutFmt ws, 8, "a~?c", "@", "T_tilq"
++    Dim dr As String
++    dr = "A1:A8"
++    TryOneCriteria ws, dr, "P15c", "arr_t1", Array("a~b"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "arr_t2", Array("a~~b"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "eq_t1", "=a~b", 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "eq_t2", "=a~~b", 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "arr_ts1", Array("a~*b"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "arr_ts2", Array("a~~*b"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "arr_ts3", Array("a~~~*b"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "eq_ts3", "=a~~~*b", 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "arr_tq3", Array("a~~~?c"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "arr_tq2", Array("a~~?c"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "arr_tq1", Array("a~?c"), 0, Empty, 2, 8, -1
++    ' 혼합 배열: 이스케이프 항목과 ~ 리터럴 항목이 한 배열에 있을 때 ~ 해석 단위
++    TryOneCriteria ws, dr, "P15c", "mix_esc_raw", Array("a~*b", "a~b"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "mix_esc_dbl", Array("a~*b", "a~~b"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "mix_q_raw", Array("zz~?", "a~b"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "mix_q_dbl", Array("zz~?", "a~~b"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "mix_plain", Array("a~b", "a~xb"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "mix_plain_dbl", Array("a~~b", "a~~xb"), 0, Empty, 2, 8, -1
++    TryOneCriteria ws, dr, "P15c", "mix_ab_raw", Array("zz~?", "ab"), 0, Empty, 2, 8, -1
++    ws.AutoFilterMode = False
++End Sub
++
++' P15d: UnivFilter Test_AP_WildcardLiteral 제외 여집합 재현(5항목 배열이 3행만 표시)
++Private Sub P15d_ComplementRepro()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++    PutFmt ws, 2, "a*b", "@", "T_star"
++    PutFmt ws, 3, "axb", "@", "T_axb"
++    PutFmt ws, 4, "a~b", "@", "T_tilde"
++    PutFmt ws, 5, "a?c", "@", "T_q"
++    PutFmt ws, 6, "abc", "@", "T_abc"
++    PutFmt ws, 7, "a~xb", "@", "T_tilx"
++    Dim dr As String
++    dr = "A1:A7"
++    TryOneCriteria ws, dr, "P15d", "full", Array("a~*b", "a~b", "a~?c", "abc", "a~xb"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "no_q", Array("a~*b", "a~b", "abc", "a~xb"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "no_star", Array("a~b", "a~?c", "abc", "a~xb"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "q_abc", Array("a~?c", "abc"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "star_tilx", Array("a~*b", "a~xb"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "q_only", Array("a~?c"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "abc_only", Array("abc"), 0, Empty, 2, 7, -1
++    ' 항목 수 경계: 3개 이상 배열은 원문 와일드카드를 리터럴로 보는가
++    TryOneCriteria ws, dr, "P15d", "n3_star_raw", Array("a*b", "zz1", "zz2"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "n3_q_raw", Array("a?c", "zz1", "zz2"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "n3_tilde_raw", Array("a~b", "zz1", "zz2"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "n3_star_esc", Array("a~*b", "zz1", "zz2"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "n2_star_raw", Array("a*b", "zz1"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "n2_star_blank", Array("a*b", "="), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "n2_esc_blank", Array("a~*b", "="), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "n3_full_raw", Array("a*b", "a~b", "a?c", "abc", "a~xb"), 0, Empty, 2, 7, -1
++    TryOneCriteria ws, dr, "P15d", "n3_case", Array("A*B", "zz1", "zz2"), 0, Empty, 2, 7, -1
 +    ws.AutoFilterMode = False
 +End Sub
 +

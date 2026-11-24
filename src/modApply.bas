@@ -9,6 +9,8 @@ Option Explicit
 '  - xlFilterValues 배열이 단일 Tier (날짜/회계 접힌형/분수 전부 소화, P2/P5/P6)
 '  - 배열 항목 255자 초과는 조용히 0건(P1) -> 등호 스칼라(<=2건) 또는 탈락 기록
 '  - 빈칸 포함은 배열 항목 "=" (P3)
+'  - 등호 스칼라와 2항목 이하 배열은 * ? 를 와일드카드로 해석 -> 리터럴화 필수,
+'    3항목 이상 배열은 리터럴 값 목록이라 이스케이프하면 오히려 0건 (P15/P15c/P15d)
 
 Private Const MAX_ITEM_LEN As Long = 255
 Private Const NOMATCH_SENTINEL As String = "###UF_NOMATCH###"
@@ -71,6 +73,13 @@ Public Function ApplyDisplays(ByVal rngFilterArea As Range, ByVal lField As Long
             i = i + 1
         Next vKey
         If bIncludeBlanks Then arr(n - 1) = "="
+        ' 2항목 이하 배열은 패턴(Criteria1/2)으로 해석되고 3항목 이상은 리터럴 값 목록이다(P15d).
+        ' shortcut: 이스케이프로 255자를 넘는 항목은 미실측, 그런 값이 보고되면 등호 경로로 보낸다.
+        If n <= 2 Then
+            For i = 0 To n - 1
+                arr(i) = EscapeWildcards(CStr(arr(i)))
+            Next i
+        End If
 
         If Not bStack Then ResetFilters rngFilterArea
         rngFilterArea.AutoFilter Field:=lField, Criteria1:=arr, Operator:=xlFilterValues
@@ -132,9 +141,21 @@ Fail:
 End Function
 
 Private Function LiteralCriterion(ByVal text As String) As String
+    LiteralCriterion = "=" & EscapeWildcards(text)
+End Function
+
+' 패턴 criteria는 * ? 가 있으면 와일드카드로 해석된다(P15). 패턴일 때만 ~ * ? 를 모두
+' 이스케이프하고, 와일드카드가 없으면 ~ 도 리터럴이라 그대로 둔다(P15c: "a~~b"는 0건).
+Private Function EscapeWildcards(ByVal text As String) As String
+    If InStr(text, "*") = 0 Then
+        If InStr(text, "?") = 0 Then
+            EscapeWildcards = text
+            Exit Function
+        End If
+    End If
     text = Replace(text, "~", "~~")
     text = Replace(text, "*", "~*")
-    LiteralCriterion = "=" & Replace(text, "?", "~?")
+    EscapeWildcards = Replace(text, "?", "~?")
 End Function
 
 Private Function ToArray(ByVal col As Collection) As Variant

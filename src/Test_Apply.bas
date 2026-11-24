@@ -157,6 +157,68 @@ Public Sub Test_AP_LongItem()
     DropSheet
 End Sub
 
+' @desc 와일드카드/물결표 문자를 담은 값의 배열/스칼라 리터럴 적용을 검증함(P15/P15c)
+Public Sub Test_AP_WildcardLiteral()
+    Dim ws As Worksheet
+    Set ws = PrepSheet()
+    ws.Range("A:A").NumberFormat = "@"
+    ' 행: 2=a*b 3=axb 4=a~b 5=a?c 6=abc 7=a~xb
+    PutTextCol ws, Array("a*b", "axb", "a~b", "a?c", "abc", "a~xb")
+    Dim area As Range
+    Set area = ws.Range("A1:A7")
+
+    Dim sel As New clsSet
+    sel.Add "a*b"
+    modApply.ApplyDisplays area, 1, sel, False, False
+    LogShim.AssertEq "ap_wc_star_only", CLng(1), modApply.CountVisibleRows(area)
+    LogShim.AssertEq "ap_wc_star_row", False, ws.Rows(2).Hidden
+
+    sel.Clear
+    sel.Add "a?c"
+    modApply.ApplyDisplays area, 1, sel, False, False
+    LogShim.AssertEq "ap_wc_question_only", CLng(1), modApply.CountVisibleRows(area)
+    LogShim.AssertEq "ap_wc_question_row", False, ws.Rows(5).Hidden
+
+    ' 와일드카드 없는 ~ 는 이스케이프하지 않아야 매칭된다(P15c)
+    sel.Clear
+    sel.Add "a~b"
+    modApply.ApplyDisplays area, 1, sel, False, False
+    LogShim.AssertEq "ap_wc_tilde_only", CLng(1), modApply.CountVisibleRows(area)
+    LogShim.AssertEq "ap_wc_tilde_row", False, ws.Rows(4).Hidden
+
+    ' 2항목 배열도 패턴 해석 경계(P15d) - a*b가 axb/a~b/a~xb를 끌어오면 안 된다
+    sel.Clear
+    sel.Add "a*b"
+    sel.Add "abc"
+    modApply.ApplyDisplays area, 1, sel, False, False
+    LogShim.AssertEq "ap_wc_pair_visible", CLng(2), modApply.CountVisibleRows(area)
+
+    ' 제외 여집합(3항목 이상 = 리터럴 값 목록): "axb"만 제외되어야 한다
+    Dim comp As New clsSet
+    comp.Add "a*b"
+    comp.Add "a~b"
+    comp.Add "a?c"
+    comp.Add "abc"
+    comp.Add "a~xb"
+    modApply.ApplyDisplays area, 1, comp, False, False
+    LogShim.AssertEq "ap_wc_exclude_visible", CLng(5), modApply.CountVisibleRows(area)
+    LogShim.AssertEq "ap_wc_exclude_axb_hidden", True, ws.Rows(3).Hidden
+
+    ' 긴 값 등호 스칼라: 와일드카드 없는 ~ 포함 값
+    ws.AutoFilterMode = False
+    Dim longVal As String
+    longVal = String$(300, "A") & "~Z"
+    PutTextCol ws, Array(longVal, "BB")
+    sel.Clear
+    sel.Add longVal
+    Dim info As Object
+    Set info = modApply.ApplyDisplays(ws.Range("A1:A3"), 1, sel, False, False)
+    LogShim.AssertEq "ap_wc_long_tilde_mode", "scalar", CStr(info("Mode"))
+    LogShim.AssertEq "ap_wc_long_tilde_visible", CLng(1), modApply.CountVisibleRows(ws.Range("A1:A3"))
+
+    DropSheet
+End Sub
+
 ' @desc 회계 열 스캔-값브리지-적용 e2e를 검증함 (실측 P6 확정 경로)
 Public Sub Test_AP_AccountingE2E()
     Dim ws As Worksheet
