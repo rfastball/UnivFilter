@@ -1,0 +1,195 @@
+--- a/src/modProbeGaps.bas
++++ b/src/modProbeGaps.bas
+@@ -192,6 +192,44 @@
+     Resume Cleanup
+ End Sub
+ 
++' @desc P15 텍스트 열 "<>" 스칼라 재실험만 단독 실행함(UnivFilter 버그2 대체 수단 판정)
++Public Sub RunP15Only()
++    Dim prevScreen As Boolean
++    prevScreen = Application.ScreenUpdating
++    On Error GoTo Fail
++    Application.ScreenUpdating = False
++    LogShim.Reset
++    Set mRows = New Collection
++    P15_NotEqualTextColumn
++    WriteGapReport
++    LogShim.LogEvent "gap_done", Array("rows"), Array(mRows.Count)
++Cleanup:
++    Application.ScreenUpdating = prevScreen
++    Exit Sub
++Fail:
++    LogShim.LogD "error", "RunP15Only: " & Err.Number & " " & Err.Description
++    Resume Cleanup
++End Sub
++
++' @desc P13 텍스트섹션/빈 표시 키 프로브만 단독 실행함(UnivFilter 리뷰 실측)
++Public Sub RunP13Only()
++    Dim prevScreen As Boolean
++    prevScreen = Application.ScreenUpdating
++    On Error GoTo Fail
++    Application.ScreenUpdating = False
++    LogShim.Reset
++    Set mRows = New Collection
++    P13_TextSectionKey
++    WriteGapReport
++    LogShim.LogEvent "gap_done", Array("rows"), Array(mRows.Count)
++Cleanup:
++    Application.ScreenUpdating = prevScreen
++    Exit Sub
++Fail:
++    LogShim.LogD "error", "RunP13Only: " & Err.Number & " " & Err.Description
++    Resume Cleanup
++End Sub
++
+ ' @desc P11/P12 캐논-잘림 키 프로브만 단독 실행함(UnivFilter .Text 우회 게이트 실측)
+ Public Sub RunP11P12Only()
+     Dim prevCalc As XlCalculation
+@@ -1171,6 +1209,147 @@
+ End Sub
+ 
+ ' ==========================================================================
++' P13: 텍스트 섹션 서식 텍스트 셀 / 표시가 빈 비빈칸 셀(;;;)의 매칭 키
++'      (UnivFilter 리뷰 2026-11-24: 텍스트 셀 키 = CStr(값) 가정 검증,
++'      빈 문자열 키 "" 배열 항목의 의미 확인)
++' ==========================================================================
++Private Sub P13_TextSectionKey()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Columns("A").ColumnWidth = 30
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++
++    PutFmt ws, 2, "abc", """ID-""@", "T_pre"
++    PutFmt ws, 3, "abc", """ID-""@", "T_pre2"
++    PutFmt ws, 4, "xyz", "0;-0;0;""[""@""]""", "T_sec4"
++    PutFmt ws, 5, "ID-abc", "@", "T_twin_disp"
++    PutFmt ws, 6, "abc", "@", "T_twin_raw"
++    PutFmt ws, 7, 5, ";;;", "N_hidden"
++    PutFmt ws, 8, "hid", ";;;", "T_hidden"
++    PutFmt ws, 9, 7, "General", "N_ctrl"
++    ws.Cells(10, 2).Value = "R_BLANK"              ' A10 빈칸
++
++    Dim r As Long, shown As String
++    For r = 2 To 9
++        shown = shown & ws.Cells(r, 2).Value & "=[" & ws.Cells(r, 1).Text & "];"
++    Next r
++    LogShim.LogEvent "gap_p13_text", Array("shown"), Array(shown)
++
++    Dim dataRange As String
++    dataRange = "A1:A10"
++    TryOneCriteria ws, dataRange, "P13", "arr_display_pre", Array("ID-abc"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_raw_pre", Array("abc"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "eq_display_pre", "=ID-abc", 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "eq_raw_pre", "=abc", 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_display_sec4", Array("[xyz]"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_raw_sec4", Array("xyz"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_hidden_num", Array("5"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_hidden_text", Array("hid"), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_empty", Array(""), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_blank_eq", Array("="), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_ctrl_empty", Array("7", ""), 0, Empty, 2, 10, -1
++    TryOneCriteria ws, dataRange, "P13", "arr_ctrl_blank", Array("7", "="), 0, Empty, 2, 10, -1
++
++    ws.AutoFilterMode = False
++End Sub
++
++' ==========================================================================
++' P15: "<>" 스칼라 재실험 - 텍스트 열(255자 초과 값이 사는 곳) 한정 의미론
++'      (UnivFilter 리뷰 버그2: 제외 모드 여집합 배열이 긴 값을 탈락시키는 문제의
++'      대체 수단 판정. P10은 숫자 혼합 열 기준이었다.)
++' ==========================================================================
++Private Sub P15_NotEqualTextColumn()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Columns("A").ColumnWidth = 30
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++
++    Dim long1 As String, long2 As String
++    long1 = String$(300, "L")
++    long2 = String$(300, "M")
++    PutFmt ws, 2, long1, "@", "L_long1"
++    PutFmt ws, 3, long2, "@", "L_long2"
++    PutFmt ws, 4, "a", "@", "T_a"
++    PutFmt ws, 5, "A", "@", "T_A"
++    PutFmt ws, 6, "b", "@", "T_b"
++    PutFmt ws, 7, "a*b", "@", "T_star"
++    PutFmt ws, 8, "a?c", "@", "T_q"
++    PutFmt ws, 9, "a~b", "@", "T_tilde"
++    PutFmt ws, 10, "axb", "@", "T_axb"
++    PutFmt ws, 11, "123", "@", "T_numtxt"
++    PutFmt ws, 12, 123, "General", "N_123"
++    PutFmt ws, 13, "5 kg", "@", "T_kg_twin"
++    PutFmt ws, 14, 5, "0"" kg""", "N_kg"
++    PutFmt ws, 15, "ID-abc", "@", "T_idtwin"
++    PutFmt ws, 16, "abc", """ID-""@", "T_pre"
++    PutFmt ws, 17, "a ", "@", "T_space"
++    ws.Cells(18, 2).Value = "R_BLANK"              ' A18 빈칸
++
++    Dim dr As String
++    dr = "A1:A18"
++    TryOneCriteria ws, dr, "P15", "ne_a", "<>a", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_a_space", "<>a ", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_star_raw", "<>a*b", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_star_esc", "<>a~*b", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_q_raw", "<>a?b", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_q_esc", "<>a~?c", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_tilde_raw", "<>a~b", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_tilde_esc", "<>a~~b", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_numtxt", "<>123", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_kg", "<>5 kg", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_id_display", "<>ID-abc", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_id_raw", "<>abc", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "ne_long", "<>" & long1, 0, Empty, 2, 18, -1
++    TryAnd ws, dr, "and_a_b", "<>a", "<>b"
++    TryAnd ws, dr, "and_long_a", "<>" & long1, "<>a"
++    ' 부수: 등호 스칼라/배열의 와일드카드 해석 여부 (현행 긴 값 등호 경로 영향)
++    TryOneCriteria ws, dr, "P15", "eq_star_raw", "=a*b", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "eq_q_raw", "=a?b", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "arr_star", Array("a*b"), 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "arr_q", Array("a?b"), 0, Empty, 2, 18, -1
++    ' 배열/등호의 ~ 이스케이프와 끝 공백 처리
++    TryOneCriteria ws, dr, "P15", "arr_star_esc", Array("a~*b"), 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "arr_q_esc", Array("a~?c"), 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "arr_tilde", Array("a~b"), 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "arr_tilde_esc", Array("a~~b"), 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "eq_star_esc", "=a~*b", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "arr_a", Array("a"), 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "arr_a_space", Array("a "), 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "eq_a", "=a", 0, Empty, 2, 18, -1
++    TryOneCriteria ws, dr, "P15", "arr_star_mix", Array("a~*b", "b"), 0, Empty, 2, 18, -1
++
++    ws.AutoFilterMode = False
++End Sub
++
++' 두 스칼라를 xlAnd로 결합해 적용하고 가시 행을 기록한다.
++Private Sub TryAnd(ws As Worksheet, dataRange As String, cas As String, _
++                   c1 As String, c2 As String)
++    Dim errN As Long, errD As String, vis As Long, names As String
++    ws.AutoFilterMode = False
++    On Error Resume Next
++    Err.Clear
++    ws.Range(dataRange).AutoFilter Field:=1, Criteria1:=c1, Operator:=xlAnd, Criteria2:=c2
++    errN = Err.Number: errD = Err.Description
++    On Error GoTo 0
++    CollectNames ws, 2, 18, vis, names
++    RecordRow "P15", cas, Left$(c1, 20) & " AND " & Left$(c2, 20), errN = 0, vis, names, 0, ErrNote(errN, errD)
++    ws.AutoFilterMode = False
++End Sub
++
++' 셀 1개에 서식을 먼저 걸고 값(문자열은 문자열 그대로)을 기록한다.
++Private Sub PutFmt(ws As Worksheet, r As Long, v As Variant, numFmt As String, nm As String)
++    ws.Cells(r, 1).NumberFormat = numFmt
++    ws.Cells(r, 1).Value = v
++    ws.Cells(r, 2).Value = nm
++End Sub
++
++' ==========================================================================
+ ' 공용 헬퍼
+ ' ==========================================================================
+ 
