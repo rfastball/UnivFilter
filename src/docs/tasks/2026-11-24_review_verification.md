@@ -4,6 +4,10 @@
 `modPerfProbe.RunReviewE2E` / `modPerfProbe.RunFingerprintBench`, AutoFilterTest
 `modProbeGaps.RunP13Only`(패치: `../reference/2026-11-24_autofiltertest_p13_probe.patch`).
 
+최초 실측은 이전 릴리스 v2.8.4(17d809a) 기준. 최신 릴리스 v1.0.0(3fa9956, 버전 체계 재시작 -
+감사 수정/줄바꿈 옵션 포함) 위로 rebase한 뒤 재실행해 테스트 69/69 green, e2e 판정 동일, 벤치 수치 동일(오차 내)을 확인했다.
+감사 수정은 H1/H2 경로(텍스트 키 규칙, 제외 모드 긴 항목 탈락)를 건드리지 않았다.
+
 ## P13 (AutoFilterTest) - 텍스트 섹션 서식 / 빈 표시 셀
 
 | 셀 (값 / 서식) | 화면 | 매칭되는 criteria | 매칭 안 됨 |
