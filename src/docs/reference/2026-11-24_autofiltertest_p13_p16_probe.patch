@@ -1,9 +1,31 @@
 --- a/src/modProbeGaps.bas
 +++ b/src/modProbeGaps.bas
-@@ -192,6 +192,46 @@
+@@ -192,6 +192,68 @@
      Resume Cleanup
  End Sub
  
++' @desc P14 표식 렌더와 P16 공백 매칭 프로브를 실행함(UnivFilter 버그1/4 설계 게이트)
++Public Sub RunP14P16Only()
++    Dim prevScreen As Boolean
++    prevScreen = Application.ScreenUpdating
++    On Error GoTo Fail
++    Application.ScreenUpdating = False
++    LogShim.Reset
++    Set mRows = New Collection
++    P14b_ColorBang
++    P14_RenderEquiv
++    P14_AutoFilterKeys
++    P16_Whitespace
++    WriteGapReport
++    LogShim.LogEvent "gap_done", Array("rows"), Array(mRows.Count)
++Cleanup:
++    Application.ScreenUpdating = prevScreen
++    Exit Sub
++Fail:
++    LogShim.LogD "error", "RunP14P16Only: " & Err.Number & " " & Err.Description
++    Resume Cleanup
++End Sub
++
 +' @desc P15 텍스트 열 "<>" 스칼라 재실험만 단독 실행함(UnivFilter 버그2 대체 수단 판정)
 +Public Sub RunP15Only()
 +    Dim prevScreen As Boolean
@@ -47,7 +69,7 @@
  ' @desc P11/P12 캐논-잘림 키 프로브만 단독 실행함(UnivFilter .Text 우회 게이트 실측)
  Public Sub RunP11P12Only()
      Dim prevCalc As XlCalculation
-@@ -1171,6 +1211,222 @@
+@@ -1171,6 +1233,451 @@
  End Sub
  
  ' ==========================================================================
@@ -241,6 +263,235 @@
 +    TryOneCriteria ws, dr, "P15d", "n2_esc_blank", Array("a~*b", "="), 0, Empty, 2, 7, -1
 +    TryOneCriteria ws, dr, "P15d", "n3_full_raw", Array("a*b", "a~b", "a?c", "abc", "a~xb"), 0, Empty, 2, 7, -1
 +    TryOneCriteria ws, dr, "P15d", "n3_case", Array("A*B", "zz1", "zz2"), 0, Empty, 2, 7, -1
++    ws.AutoFilterMode = False
++End Sub
++
++' ==========================================================================
++' P14: 텍스트 섹션 서식의 표식 선행 렌더(UnivFilter 버그1 설계 게이트)
++'      A. 렌더 동치(.Text / 표식 단건 / 표식 벌크 / 빠른 판정)
++'      B. AutoFilter 매칭 키(1항목 패턴 / 3항목 값목록)
++' P16: 공백 정규화 - 앞/끝/전각/NBSP/내부 공백과 숫자 패딩의 매칭 동치
++' ==========================================================================
++Private Function P14Fmts() As Variant
++    P14Fmts = Array("""ID-""@", "0;-0;0;""[""@""]""", ";;;", "@"" / ""@", """Hi!""@", _
++                    "_-* #,##0_-;-* #,##0_-;_-* ""-""_-;_-@_-", "@_)", "@*-", "@", _
++                    "General", "#,##0", "[Red]@")
++End Function
++
++' 표식(사용자 정의 영역 문자)을 앞에 붙여 TEXT 렌더 후 표식을 지운다.
++Private Function P14Marker(ByVal v As String, ByVal fmtLocal As String) As String
++    Dim f As String, s As String
++    f = P14RenderFmt(fmtLocal)
++    On Error GoTo Fail
++    s = Application.WorksheetFunction.Text(ChrW(&HE000) & v, f)
++    P14Marker = Replace(s, ChrW(&HE000), "")
++    Exit Function
++Fail:
++    P14Marker = "#ERR"
++End Function
++
++' UnivFilter와 같은 렌더 서식: ! 제거, 로컬 General은 영문 General.
++Private Function P14RenderFmt(ByVal fmtLocal As String) As String
++    If fmtLocal = "G/" & ChrW(&HD45C) & ChrW(&HC900) Or fmtLocal = "General" Then
++        P14RenderFmt = "General"
++    Else
++        P14RenderFmt = Replace(fmtLocal, "!", "")
++    End If
++End Function
++
++' 텍스트를 확실히 문자열로 넣은 뒤 서식을 건다(숫자형 텍스트의 자동 변환 방지).
++Private Sub PutText(ws As Worksheet, r As Long, ByVal v As String, ByVal fmt As String, ByVal nm As String)
++    ws.Cells(r, 1).NumberFormat = "@"
++    ws.Cells(r, 1).Value = v
++    ws.Cells(r, 1).NumberFormat = fmt
++    ws.Cells(r, 2).Value = nm
++End Sub
++
++Private Sub P14_RenderEquiv()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Columns("A").ColumnWidth = 60
++
++    Dim fmts As Variant, vals As Variant
++    fmts = P14Fmts()
++    vals = Array("abc", "123", "2024-01-03", ChrW(&HD574) & ChrW(&HB2F9) & ChrW(&HC5C6) & ChrW(&HC74C), String$(300, "L"))
++
++    Dim i As Long, j As Long, c As Range, fl As String, txt As String, mk As String
++    Dim fast As Boolean, rawHasM As Boolean, s As String
++    Dim bulkIn() As Variant, bulkOut As Variant, bulkV As String
++    Set c = ws.Cells(1, 1)
++    For i = LBound(fmts) To UBound(fmts)
++        ' 빠른 판정: 표식+x 가 그대로면 텍스트 섹션 없음
++        c.NumberFormat = fmts(i)
++        fl = c.NumberFormatLocal
++        On Error Resume Next
++        s = ""
++        s = Application.WorksheetFunction.Text(ChrW(&HE000) & "x", P14RenderFmt(fl))
++        On Error GoTo 0
++        fast = (s = ChrW(&HE000) & "x")
++
++        ' 벌크: 값 5개를 표식 선행 배열로 1회 렌더
++        ReDim bulkIn(1 To UBound(vals) + 1, 1 To 1)
++        For j = LBound(vals) To UBound(vals)
++            bulkIn(j + 1, 1) = ChrW(&HE000) & vals(j)
++        Next j
++        bulkOut = Empty
++        On Error Resume Next
++        bulkOut = Application.Text(bulkIn, P14RenderFmt(fl))
++        On Error GoTo 0
++
++        For j = LBound(vals) To UBound(vals)
++            PutText ws, 1, CStr(vals(j)), CStr(fmts(i)), ""
++            txt = c.Text
++            mk = P14Marker(CStr(vals(j)), fl)
++            bulkV = "#NOARR"
++            If IsArray(bulkOut) Then
++                On Error Resume Next
++                bulkV = "#ERR"
++                If IsError(bulkOut(j + 1, 1)) Then
++                    bulkV = "#ERRV"
++                Else
++                    bulkV = Replace(CStr(bulkOut(j + 1, 1)), ChrW(&HE000), "")
++                End If
++                On Error GoTo 0
++            End If
++            LogShim.LogEvent "p14_render", _
++                Array("fmt", "fmtLocal", "val", "fast", "text", "marker", "bulk", "markerEqText", "bulkEqMarker", "valLen"), _
++                Array(CStr(fmts(i)), fl, Left$(CStr(vals(j)), 12), fast, Left$(txt, 40), Left$(mk, 40), Left$(bulkV, 40), _
++                      (mk = txt), (bulkV = mk), Len(CStr(vals(j))))
++        Next j
++    Next i
++    ws.Cells.Clear
++End Sub
++
++Private Sub P14_AutoFilterKeys()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Columns("A").ColumnWidth = 40
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++
++    Dim fAcc As String
++    fAcc = "_-* #,##0_-;-* #,##0_-;_-* ""-""_-;_-@_-"
++    PutText ws, 2, ChrW(&HD574) & ChrW(&HB2F9) & ChrW(&HC5C6) & ChrW(&HC74C), fAcc, "T_acc"
++    PutFmt ws, 3, 1234, fAcc, "N_acc"
++    PutText ws, 4, "abc", "@_)", "T_pad"
++    PutText ws, 5, "abd", "@*-", "T_fill"
++    PutText ws, 6, "123", """ID-""@", "T_id123"
++    PutText ws, 7, "2024-01-03", """ID-""@", "T_iddate"
++    PutText ws, 8, "abe", "@"" / ""@", "T_dbl"
++    PutText ws, 9, "abf", """Hi!""@", "T_bang"
++    PutText ws, 10, String$(300, "L"), """ID-""@", "T_idlong"
++    PutText ws, 11, "abg", "[Red]@", "T_red"
++    ws.Cells(12, 2).Value = "R_BLANK"
++
++    Dim dr As String, r As Long, keys As Object, k As Variant, raw As String
++    dr = "A1:A12"
++    For r = 2 To 11
++        Set keys = CreateObject("Scripting.Dictionary")
++        raw = CStr(ws.Cells(r, 1).Value)
++        keys("raw") = raw
++        keys("text") = ws.Cells(r, 1).Text
++        If VarType(ws.Cells(r, 1).Value) = vbString Then
++            keys("marker") = P14Marker(raw, ws.Cells(r, 1).NumberFormatLocal)
++        Else
++            keys("marker") = Application.WorksheetFunction.Text(ws.Cells(r, 1).Value2, _
++                                 P14RenderFmt(ws.Cells(r, 1).NumberFormatLocal))
++        End If
++        keys("trimmed") = Trim$(keys("marker"))
++        For Each k In keys.Keys
++            If Len(keys(k)) > 255 Then
++                TryOneCriteria ws, dr, "P14", ws.Cells(r, 2).Value & "_eq_" & k, "=" & keys(k), 0, Empty, 2, 12, -1
++            Else
++                TryOneCriteria ws, dr, "P14", ws.Cells(r, 2).Value & "_a1_" & k, Array(keys(k)), 0, Empty, 2, 12, -1
++                TryOneCriteria ws, dr, "P14", ws.Cells(r, 2).Value & "_a3_" & k, Array(keys(k), "zz1", "zz2"), 0, Empty, 2, 12, -1
++            End If
++        Next k
++        LogShim.LogEvent "p14_keys", Array("row", "raw", "text", "marker"), _
++            Array(ws.Cells(r, 2).Value, Left$(raw, 20), Left$(keys("text"), 30), Left$(keys("marker"), 30))
++    Next r
++    ws.AutoFilterMode = False
++End Sub
++
++' P14b: 색/느낌표 서식에서 TEXT 표식 렌더(로컬/영문/! 보존) + 긴 텍스트섹션 값 키
++Private Sub P14b_ColorBang()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Columns("A").ColumnWidth = 40
++    Dim fmts As Variant, i As Long, c As Range, fl As String, fe As String
++    fmts = Array("[Red]@", "#,##0;[Red]-#,##0", "0;-0;0;[Red]""[""@""]""", """Hi!""@", "@!)", _
++                 "[Blue]General", "0.00;[Red]-0.00", "[Color10]@")
++    Set c = ws.Cells(1, 1)
++    For i = LBound(fmts) To UBound(fmts)
++        PutText ws, 1, "abc", CStr(fmts(i)), ""
++        fl = c.NumberFormatLocal
++        fe = c.NumberFormat
++        LogShim.LogEvent "p14b", _
++            Array("fmt", "fmtLocal", "text", "fastLocal", "fastEng", "mkLocalKeepBang", "mkLocalNoBang", "mkEng"), _
++            Array(fe, fl, c.Text, P14TryText("x", fl), P14TryText("x", fe), _
++                  P14TryText("abc", fl), P14TryText("abc", Replace(fl, "!", "")), P14TryText("abc", fe))
++    Next i
++
++    ' 긴 텍스트(300자) + 텍스트섹션 서식: 등호 스칼라로 표시형/원문형 매칭 여부
++    ws.Cells.Clear
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++    PutText ws, 2, String$(300, "L"), """ID-""@", "T_idlong"
++    PutText ws, 3, "b", "@", "T_b"
++    TryOneCriteria ws, "A1:A3", "P14b", "eq_display_long", "=ID-" & String$(300, "L"), 0, Empty, 2, 3, -1
++    TryOneCriteria ws, "A1:A3", "P14b", "eq_raw_long", "=" & String$(300, "L"), 0, Empty, 2, 3, -1
++    TryOneCriteria ws, "A1:A3", "P14b", "arr_b_only", Array("b", "zz1", "zz2"), 0, Empty, 2, 3, -1
++    ws.AutoFilterMode = False
++End Sub
++
++' 표식+값을 서식으로 TEXT 렌더한 결과(표식 제거) 또는 오류 표기.
++Private Function P14TryText(ByVal v As String, ByVal f As String) As String
++    On Error GoTo Fail
++    P14TryText = Replace(Application.WorksheetFunction.Text(ChrW(&HE000) & v, f), ChrW(&HE000), "~M~")
++    Exit Function
++Fail:
++    P14TryText = "#ERR"
++End Function
++
++Private Sub P16_Whitespace()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++    Dim fw As String, nb As String
++    fw = ChrW(&H3000)
++    nb = ChrW(160)
++    PutText ws, 2, "a", "@", "T_a"
++    PutText ws, 3, "a ", "@", "T_tsp"
++    PutText ws, 4, " a", "@", "T_lsp"
++    PutText ws, 5, "a  ", "@", "T_tsp2"
++    PutText ws, 6, fw & "a", "@", "T_lfw"
++    PutText ws, 7, "a" & fw, "@", "T_tfw"
++    PutText ws, 8, "a" & nb, "@", "T_tnb"
++    PutText ws, 9, "a b", "@", "T_in1"
++    PutText ws, 10, "a  b", "@", "T_in2"
++    PutFmt ws, 11, 1234, "#,##0_)", "N_pad"
++    PutFmt ws, 12, 1234, "#,##0", "N_plain"
++    PutText ws, 13, " a ", "@", "T_both"
++
++    Dim dr As String, crit As Variant, nm As Variant, i As Long
++    dr = "A1:A13"
++    crit = Array("a", "a ", " a", fw & "a", "a" & fw, "a" & nb, "a b", "a  b", "1,234", "1,234 ", " a ")
++    nm = Array("a", "a_tsp", "a_lsp", "a_lfw", "a_tfw", "a_tnb", "in1", "in2", "n", "n_tsp", "both")
++    For i = LBound(crit) To UBound(crit)
++        TryOneCriteria ws, dr, "P16", "a1_" & nm(i), Array(crit(i)), 0, Empty, 2, 13, -1
++        TryOneCriteria ws, dr, "P16", "a3_" & nm(i), Array(crit(i), "zz1", "zz2"), 0, Empty, 2, 13, -1
++    Next i
++    TryOneCriteria ws, dr, "P16", "eq_a", "=a", 0, Empty, 2, 13, -1
++    TryOneCriteria ws, dr, "P16", "eq_lsp", "= a", 0, Empty, 2, 13, -1
 +    ws.AutoFilterMode = False
 +End Sub
 +
