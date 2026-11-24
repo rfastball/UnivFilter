@@ -537,6 +537,53 @@ Done:
     LogShim.LogEvent "perf_done", Array("ok"), Array(Err.Number = 0)
 End Sub
 
+' @desc 버그4(공백)와 회계 서식 키를 실제 RunFilter로 판정해 e2e 이벤트로 기록함
+Public Sub RunWhitespaceE2E()
+    LogShim.Reset
+    On Error GoTo Done
+    Dim ws As Worksheet, fAcc As String
+    fAcc = "_-* #,##0_-;-* #,##0_-;_-* ""-""_-;_-@_-"
+
+    ' 숫자 _) 패딩: 화면 "1,234 " - 입력 "1,234"
+    Set ws = PrepE2E()
+    ws.Range("A2:A4").NumberFormat = "#,##0_)"
+    ws.Range("A2").Value = 1234
+    ws.Range("A3").Value = 5678
+    ws.Range("A4").Value = 9
+    ws.Range("A1:A4").AutoFilter
+    E2E "npad_include_1234", ws, 4, "1,234", False
+    E2E "npad_exclude_1234", ws, 4, "1,234", True
+
+    ' 회계 서식: 숫자와 텍스트 섹션
+    Set ws = PrepE2E()
+    ws.Range("A2:A4").NumberFormat = "@"
+    ws.Range("A4").Value = ChrW(&HD574) & ChrW(&HB2F9) & ChrW(&HC5C6) & ChrW(&HC74C)
+    ws.Range("A2:A4").NumberFormat = fAcc
+    ws.Range("A2").Value = 1234
+    ws.Range("A3").Value = 5678
+    ws.Range("A1:A4").AutoFilter
+    E2E "acc_include_1234", ws, 4, "1,234", False
+    E2E "acc_include_text", ws, 4, ws.Range("A4").Value, False
+    E2E "acc_exclude_text", ws, 4, ws.Range("A4").Value, True
+
+    ' 텍스트 끝/앞 공백: "a", "a ", " a", "b"
+    Set ws = PrepE2E()
+    ws.Range("A2:A5").NumberFormat = "@"
+    ws.Range("A2").Value = "a"
+    ws.Range("A3").Value = "a "
+    ws.Range("A4").Value = " a"
+    ws.Range("A5").Value = "b"
+    ws.Range("A1:A5").AutoFilter
+    E2E "sp_include_a_expect3", ws, 5, "a", False
+    E2E "sp_exclude_a_expect1", ws, 5, "a", True
+    E2E "sp_exclude_b_expect3", ws, 5, "b", True
+
+Done:
+    If Err.Number <> 0 Then LogShim.LogD "error", "RunWhitespaceE2E: " & Err.Number & " " & Err.Description
+    DropSheet
+    LogShim.LogEvent "perf_done", Array("ok"), Array(Err.Number = 0)
+End Sub
+
 Private Function PrepE2E() As Worksheet
     Dim ws As Worksheet
     Set ws = PrepSheet()

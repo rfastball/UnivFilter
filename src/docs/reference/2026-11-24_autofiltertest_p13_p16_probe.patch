@@ -1,6 +1,6 @@
 --- a/src/modProbeGaps.bas
 +++ b/src/modProbeGaps.bas
-@@ -192,6 +192,68 @@
+@@ -192,6 +192,69 @@
      Resume Cleanup
  End Sub
  
@@ -16,6 +16,7 @@
 +    P14_RenderEquiv
 +    P14_AutoFilterKeys
 +    P16_Whitespace
++    P16b_BlankLike
 +    WriteGapReport
 +    LogShim.LogEvent "gap_done", Array("rows"), Array(mRows.Count)
 +Cleanup:
@@ -69,7 +70,7 @@
  ' @desc P11/P12 캐논-잘림 키 프로브만 단독 실행함(UnivFilter .Text 우회 게이트 실측)
  Public Sub RunP11P12Only()
      Dim prevCalc As XlCalculation
-@@ -1171,6 +1233,451 @@
+@@ -1171,6 +1234,487 @@
  End Sub
  
  ' ==========================================================================
@@ -458,6 +459,42 @@
 +Fail:
 +    P14TryText = "#ERR"
 +End Function
++
++' P16b: 공백만 셀 / 수식 "" / 탭/줄바꿈 앞뒤 - 빈칸 criteria와 트림 동치 범위
++Private Sub P16b_BlankLike()
++    Dim ws As Worksheet
++    Set ws = modProbeUtil.EnsureSheet(GAP_SHEET)
++    ws.Cells.Clear
++    ws.AutoFilterMode = False
++    ws.Cells(1, 1).Value = "Value"
++    ws.Cells(1, 2).Value = "CaseName"
++    PutText ws, 2, "   ", "@", "T_sp3"
++    ws.Cells(3, 1).Formula = "="""""
++    ws.Cells(3, 2).Value = "F_empty"
++    ws.Cells(4, 2).Value = "R_BLANK"
++    PutText ws, 5, "a" & vbTab, "@", "T_ttab"
++    PutText ws, 6, vbTab & "a", "@", "T_ltab"
++    PutText ws, 7, "a" & vbLf, "@", "T_tlf"
++    PutText ws, 8, "a", "@", "T_a"
++    PutText ws, 9, "b", "@", "T_b"
++
++    Dim dr As String
++    dr = "A1:A9"
++    TryOneCriteria ws, dr, "P16b", "arr_eq", Array("="), 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "arr_empty", Array(""), 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "arr_sp3", Array("   "), 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "arr3_eq", Array("=", "zz1", "zz2"), 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "arr3_empty", Array("", "zz1", "zz2"), 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "arr3_sp3", Array("   ", "zz1", "zz2"), 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "scalar_eq", "=", 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "arr_a", Array("a"), 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "arr3_a", Array("a", "zz1", "zz2"), 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "arr3_ttab", Array("a" & vbTab, "zz1", "zz2"), 0, Empty, 2, 9, -1
++    TryOneCriteria ws, dr, "P16b", "arr3_tlf", Array("a" & vbLf, "zz1", "zz2"), 0, Empty, 2, 9, -1
++    ' 제외 시나리오: b 만 빼고 남길 목록(빈칸 포함)
++    TryOneCriteria ws, dr, "P16b", "keep_all_but_b", Array("a", "=", "a" & vbTab, vbTab & "a", "a" & vbLf), 0, Empty, 2, 9, -1
++    ws.AutoFilterMode = False
++End Sub
 +
 +Private Sub P16_Whitespace()
 +    Dim ws As Worksheet
